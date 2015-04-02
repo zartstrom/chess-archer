@@ -1,0 +1,37 @@
+<html>
+<head></head>
+<body>
+<script type="text/javascript">
+
+    // helper function: log message to screen
+    function log(msg) {
+      document.getElementById('engine').textContent = msg;
+    }
+  
+    // setup websocket with callbacks
+    var sock = new WebSocket('ws://localhost:6400/socket');
+    sock.onopen = function() {
+      log('CONNECT');
+    };
+    sock.onclose = function() {
+      log('DISCONNECT');
+    };
+    sock.onmessage = function(event) {
+      log('MESSAGE: ' + event.data);
+    };
+
+    function send() {
+        var msg = document.getElementById('message').value;
+        sock.send(msg);
+    };
+</script>
+<h1>Harpa Chess</h1>
+<form>
+    <p>
+        Message: <input id="message" type="text" value="uci">
+    </p>
+</form>
+<button onclick="send();">Send Message</button>
+<pre id="engine"></pre>
+</body>
+</html>

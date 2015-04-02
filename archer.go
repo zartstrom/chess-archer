@@ -1,13 +1,12 @@
 package main
 
 import (
-    "bufio"
     "fmt"
+    "github.com/gorilla/websocket"
     "io"
+    "log"
+    "net/http"
     "os/exec"
-    //"strings"
-    "time"
-    //"net/http"
 )
 
 func check(e error) {
@@ -25,20 +24,6 @@ func engineAvailable(name string) bool {
         fmt.Println(string(filepath))
         return true
     }
-}
-
-func scanLineWise(r io.Reader) {
-    fmt.Println("in scanLineWise")
-	s := bufio.NewScanner(r)
-	s.Split(bufio.ScanLines)
-
-	for s.Scan() {
-        fmt.Printf("%s\n", s.Text())
-	}
-}
-
-func uciCommand(str string) []byte {
-    return []byte(fmt.Sprintf("%s\n", str))
 }
 
 type LaunchedProcess struct {
@@ -75,84 +60,82 @@ func launchCmd(commandName string, commandArgs []string, env []string) (*Launche
 	return &LaunchedProcess{cmd, stdin, stdout, stderr}, err
 }
 
-func callStockfish(commands chan string) {
+func match(in, out chan string) {
+    out <- "Waiting ..."
 
-    // TODO: Talk to stockfish
+    // put elsewhere the process setup
+    launched, _ := launchCmd("stockfish", []string{}, []string{})
+    process := NewProcessEndpoint(launched)
+	process.StartReading()
+	defer process.Terminate()
 
-    if !engineAvailable("stockfish") { return }
-    cmd := exec.Command("stockfish")
-
-    stdout, err := cmd.StdoutPipe()
-    check(err)
-    //defer stdout.Close()
-
-    stdin, err := cmd.StdinPipe()
-    check(err)
-    //defer stdin.Close()
-    go cmd.Start()
-    //defer cmd.Wait()
-
-    go scanLineWise(stdout)
-
-    go func() {
-        fmt.Printf("go func in callStockfish\n")
-        for clientCommand := range commands {
-            fmt.Printf("clientCommand: %s\n", clientCommand)
-            stdin.Write(uciCommand(clientCommand))
+    for {
+        select {
+        case engineTalk, ok := (<-process.Output()):
+            out <- engineTalk
+            log.Println(engineTalk)
+            if !ok {
+                return
+            }
+        case uciCommand := <-in:
+            if !process.Send(uciCommand) {
+                return
+            }
         }
-        //close(out)
-    }()
-
+    }
 }
 
-//func handler(w http.ResponseWriter, r *http.Request) {
-//    fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
-//}
+type connection struct {
+    // The websocket connection.
+    ws *websocket.Conn
 
-func PipeEndpoints(process Endpoint, ch chan string) {
-	process.StartReading()
-	//e2.StartReading()
+    send chan string
+    receive chan string
+}
 
-	defer process.Terminate()
-	//defer e2.Terminate()
-	for {
-		select {
-		case msgOne, ok := (<-process.Output()):
-            fmt.Println(msgOne)
-			if !ok {
-				return
-			}
-		case command := <-ch:
-			if !process.Send(command) {
-				return
-			}
-		}
-	}
+func (c *connection) reader() {
+    for {
+        _, bytes, err := c.ws.ReadMessage()
+        if err != nil {
+            break
+        }
+        log.Println("Received: " + string(bytes))
+        c.receive <- string(bytes)
+    }
+    c.ws.Close()
+}
+
+func (c *connection) writer() {
+    for message := range c.send {
+        bytes := []byte(message)
+        err := c.ws.WriteMessage(websocket.TextMessage, bytes)
+        if err != nil {
+            break
+        }
+    }
+    c.ws.Close()
+}
+
+var upgrader = &websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024}
+
+func socketHandler(w http.ResponseWriter, r *http.Request) {
+    ws, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        return
+    }
+    c := &connection{send: make(chan string), receive: make(chan string), ws: ws}
+    go match(c.receive, c.send)
+    go c.writer()
+    c.reader()
 }
 
 func main() {
-    //http.HandleFunc("/", handler)
-    //http.ListenAndServe(":6400", nil)
-    //in := make(chan string)
-    //go callStockfish(in)
-    //in <- "uci"
-    //in <- "go"
-    //close(in)
-    launched, _ := launchCmd("stockfish", []string{}, []string{})
-    fmt.Printf("%d\n", launched.cmd.Process.Pid)
-	//process := NewProcessEndpoint(launched, log)
-	process := NewProcessEndpoint(launched)
-    commandChannel := make(chan string)
-    go PipeEndpoints(process, commandChannel)
-    commandChannel <- "uci"
-    commandChannel <- "go infinite"
+    http.Handle("/", http.FileServer(http.Dir(".")))
+    http.HandleFunc("/socket", socketHandler)
 
-    time.Sleep(2500 * time.Millisecond)
-
-    //stdin.Write([]byte("uci\n"))
-    //stdin.Write([]byte("go infinite\n"))
-    //time.Sleep(2500 * time.Millisecond)
-    //stdi.Write(uciCommand("stop"))
-    //stdin.Write(uciCommand("go"))
+    log.Println("serving")
+    if err := http.ListenAndServe(":6400", nil); err != nil {
+        log.Fatal("ListenAndServe:", err)
+    }
 }
 

@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"io"
+	"log"
 	"syscall"
 )
 
@@ -77,11 +78,11 @@ func (pe *ProcessEndpoint) process_stdout() {
 		str, err := bufin.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
+                log.Println("process: Unexpected error while reading STDOUT from process: %s", err)
                 panic(err)
-				//pe.log.Error("process", "Unexpected error while reading STDOUT from process: %s", err)
 			} else {
+                log.Println("process: Process STDOUT closed")
                 panic(err)
-				//pe.log.Debug("process", "Process STDOUT closed")
 			}
 			break
 		}
