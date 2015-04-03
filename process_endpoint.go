@@ -7,34 +7,84 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
+    "os/exec"
 	"syscall"
 )
 
-type Endpoint interface {
-	StartReading()
-	Terminate()
-	Output() chan string
-	Send(string) bool
+func engineAvailable(name string) bool {
+    filepath, err := exec.Command("which", name).Output()
+    if err != nil {
+        fmt.Printf("Engine '%s' not availabe\n", name)
+        return false
+    } else {
+        fmt.Println(string(filepath))
+        return true
+    }
+}
+
+type LaunchedProcess struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.ReadCloser
+	stderr io.ReadCloser
+}
+
+func launchCmd(commandName string, commandArgs []string, env []string) (*LaunchedProcess, error) {
+	cmd := exec.Command(commandName, commandArgs...)
+	cmd.Env = env
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		return nil, err
+	}
+
+	return &LaunchedProcess{cmd, stdin, stdout, stderr}, err
 }
 
 type ProcessEndpoint struct {
 	process    *LaunchedProcess
 	bufferedIn *bufio.Writer
 	output     chan string
+	input      chan string
+	err        chan bool
 	//log        *LogScope
 }
 
-//func NewProcessEndpoint(process *LaunchedProcess, log *LogScope) *ProcessEndpoint {
-func NewProcessEndpoint(process *LaunchedProcess) *ProcessEndpoint {
+func NewEngine(engineName string) *ProcessEndpoint {
+
+    engineAvailable(engineName)
+    process, _ := launchCmd("stockfish", []string{}, []string{})
+
 	return &ProcessEndpoint{
 		process:    process,
 		bufferedIn: bufio.NewWriter(process.stdin),
 		output:     make(chan string),
-		//log:        log
+		input:      make(chan string),
+		err:        make(chan bool),
     }
 }
+
+func (pe *ProcessEndpoint) Output() chan string { return pe.output }
+func (pe *ProcessEndpoint) Input() chan string { return pe.input }
+func (pe *ProcessEndpoint) Err() chan bool { return pe.err }
 
 func (pe *ProcessEndpoint) Terminate() {
 	pe.process.stdin.Close()
@@ -56,20 +106,19 @@ func (pe *ProcessEndpoint) Terminate() {
 	}
 }
 
-func (pe *ProcessEndpoint) Output() chan string {
-	return pe.output
-}
-
-func (pe *ProcessEndpoint) Send(msg string) bool {
-	pe.bufferedIn.WriteString(msg)
-	pe.bufferedIn.WriteString("\n")
-	pe.bufferedIn.Flush()
-	return true
-}
-
-func (pe *ProcessEndpoint) StartReading() {
+func (pe *ProcessEndpoint) Start() {
 	go pe.log_stderr()
 	go pe.process_stdout()
+	go pe.process_stdin()
+}
+
+func (pe *ProcessEndpoint) process_stdin() {
+    for msg := range pe.input {
+        pe.bufferedIn.WriteString(msg)
+        pe.bufferedIn.WriteString("\n")
+        pe.bufferedIn.Flush()
+    }
+	close(pe.input)
 }
 
 func (pe *ProcessEndpoint) process_stdout() {
