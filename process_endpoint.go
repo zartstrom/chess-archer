@@ -7,23 +7,11 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"log"
     "os/exec"
 	"syscall"
 )
-
-func engineAvailable(name string) bool {
-    filepath, err := exec.Command("which", name).Output()
-    if err != nil {
-        fmt.Printf("Engine '%s' not availabe\n", name)
-        return false
-    } else {
-        fmt.Println(string(filepath))
-        return true
-    }
-}
 
 type LaunchedProcess struct {
 	cmd    *exec.Cmd
@@ -59,19 +47,9 @@ func launchCmd(commandName string, commandArgs []string, env []string) (*Launche
 	return &LaunchedProcess{cmd, stdin, stdout, stderr}, err
 }
 
-type ProcessEndpoint struct {
-	process    *LaunchedProcess
-	bufferedIn *bufio.Writer
-	output     chan string
-	input      chan string
-	err        chan bool
-	//log        *LogScope
-}
+func NewProcessEndpoint(command string) *ProcessEndpoint {
 
-func NewEngine(engineName string) *ProcessEndpoint {
-
-    engineAvailable(engineName)
-    process, _ := launchCmd("stockfish", []string{}, []string{})
+    process, _ := launchCmd(command, []string{}, []string{})
 
 	return &ProcessEndpoint{
 		process:    process,
@@ -80,6 +58,15 @@ func NewEngine(engineName string) *ProcessEndpoint {
 		input:      make(chan string),
 		err:        make(chan bool),
     }
+}
+
+type ProcessEndpoint struct {
+	process    *LaunchedProcess
+	bufferedIn *bufio.Writer
+	output     chan string
+	input      chan string
+	err        chan bool
+	//log        *LogScope
 }
 
 func (pe *ProcessEndpoint) Output() chan string { return pe.output }

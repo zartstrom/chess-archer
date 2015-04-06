@@ -15,6 +15,14 @@ type Wire interface {
     Terminate()
 }
 
+//func NewWire() Wire {
+//    return &Wire{
+//        output:     make(chan string),
+//        input:      make(chan string),
+//        err:        make(chan bool),
+//    }
+//}
+
 func directedPlug(w1, w2 Wire) {
     // from source to consumer
     // the engine is the source of data
