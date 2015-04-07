@@ -1,7 +1,22 @@
-<html>
-<head></head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+</head>
 <body>
 <script type="text/javascript">
+    //document.getElementById('message').addEventListener('keypress', function(event) {
+    //    if (event.keyCode == 13) {
+    //        event.preventDefault();
+    //    }
+    //});
+    function stopRKey(evt) { 
+      var evt = (evt) ? evt : ((event) ? event : null); 
+      var node = (evt.target) ? evt.target : ((evt.srcElement) ? evt.srcElement : null); 
+      if ((evt.keyCode == 13) && (node.type=="text"))  {return false;} 
+    } 
+
+    document.onkeypress = stopRKey;
 
     // helper function: log message to screen
     function log(msg) {
@@ -25,14 +40,21 @@
         var msg = document.getElementById('message').value;
         sock.send(msg);
     };
+
+    function sendVal(cmd) {
+        sock.send(cmd);
+    };
 </script>
-<h1>Harpa Chess</h1>
+<h1>♞  Harpa Chess</h1>
 <form>
     <p>
         Message: <input id="message" type="text" value="uci">
     </p>
 </form>
 <button onclick="send();">Send Message</button>
-<pre id="engine"></pre>
+<button onclick="sendVal('uci');">uci</button>
+<button onclick="sendVal('go infinite');">go infinite</button>
+<button onclick="sendVal('stop');">stop</button>
+<p id="engine"></p>
 </body>
 </html>
