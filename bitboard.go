@@ -28,7 +28,8 @@ func BitMain() {
     //pretty(piece.Moves(w_pieces, b_pieces))
     //testKnightMask("h1")
     //testBishopMask("e7")
-    //bb := NewBitBoard(NewFen(STARTPOSITION))
+    bb := NewBitBoard(NewFen(STARTPOSITION))
+    bb.pretty()
 }
 
 type BitBoard struct {
@@ -48,13 +49,57 @@ func NewBitBoard(f *Fen) *BitBoard {
         expandedFenRow := ExpandRow(fenRows[i])
 
         for j, rn := range expandedFenRow {
-            fmt.Println(j)
             if FEN_TO_PIECE[string(rn)] != 0 {
-                pieces[FEN_TO_PIECE[string(rn)]] |= (1 << uint(8 * (7 - i) + j))
+                shift := uint(8 * (7 - i) + j)
+                pieces[FEN_TO_PIECE[string(rn)]] |= (1 << shift)
             }
         }
     }
     return &BitBoard{pieces, 0}
+}
+
+func (bb *BitBoard) occupied(pieceTypes []int) uint64 {
+    result := uint64(0)
+    // think about wording piece[s]/pieceType[s]
+    for _, pieceType := range pieceTypes {
+        result |= bb.pieces[pieceType]
+    }
+    return result
+}
+
+func (bb *BitBoard) pretty() {
+    var sqs = []string{}
+
+    // func get 64string
+    occ := bb.occupied(PIECES)
+    for i := 0; i < 64; i++ {
+        sqs = append(sqs, " ")
+        var sq_bit uint64
+        sq_bit = (1 << uint(i))
+        if occ & sq_bit == 0 { continue }
+
+        for _, pieceType := range PIECES {
+            if bb.pieces[pieceType] & sq_bit != 0 {
+                sqs[i] = PIECE_TO_FEN[pieceType]
+                break
+            }
+        }
+    }
+
+    // func pretty print
+    var sep = "+---+---+---+---+---+---+---+---+\n"
+    var result string = ""
+
+    result += sep
+    for r := 7; r >= 0; r-- {
+        rank := sqs[8 * r: 8 * (r + 1)]
+        for _, sym := range rank {
+            result += fmt.Sprintf("| %s ", string(sym))
+        }
+        result += "|\n"
+        result += sep
+    }
+    fmt.Println(result)
 }
 
 
