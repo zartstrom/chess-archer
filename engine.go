@@ -104,12 +104,24 @@ func getVariation(msg string, fen *Fen) string {
     }
     eval, _ := strconv.ParseFloat(result["score"], 64)
     eval = eval / 100
-    prettyLine := prettyPrint(result["mainline"], fen) // do it elsewhere
+    prettyLine := prettyLine(result["mainline"], fen) // do it elsewhere
     res := fmt.Sprintf("%3.2f - %s", eval, prettyLine)
     return res
 }
 
-func prettyPrint(line string, fen *Fen) string {
+
+// prettyLine displays a line from the uci engine in a human readable format.
+// The function takes a fen position as a parameter to figure out which piece symbol to display
+// and keeps track of the position of the pieces down the line.
+// - Moves by pieces (here pieces = all pieces except pawns) are denoted by a symbol. 
+//   The symbols can be algebraic [R,N,B,Q,K] or figurine [♔ ,♕,♖,♗,♘]
+// - Pawn moves don't have a symbol. When a pawn captures, then add the letter of the file
+//   where the pawn stood before. (exd5)
+// - Captures are denoted by "x", i.e. Nxb6, or cxd4
+// - Moves should be uniquely identified. I.e. with rooks on a1 and f1 write Rae1.
+//   Likewise with knights on e5 and e3 write N5c4.
+// - Castling has the symbols "0-0" and "0-0-0"
+func prettyLine(line string, fen *Fen) string {
     // pretty print a line (=variation)
     var moveNumber int
     var whiteToMove = true

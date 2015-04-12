@@ -5,6 +5,7 @@ import (
     "github.com/gorilla/websocket"
     "log"
     "net/http"
+    "os"
 )
 
 type Wire interface {
@@ -64,7 +65,7 @@ func socketHandler(w http.ResponseWriter, r *http.Request) {
     directedPlug(eng, soc)
 }
 
-func main() {
+func HarpaChess() {
     http.Handle("/", http.FileServer(http.Dir(".")))
     http.HandleFunc("/socket", socketHandler)
 
@@ -74,3 +75,12 @@ func main() {
     }
 }
 
+func main() {
+    args := os.Args[1:]
+    // just for testing; remove this
+    if len(args) > 0 && args[0] == "bitboard" {
+        BitMain()
+    } else {
+        HarpaChess()
+    }
+}
