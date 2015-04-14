@@ -29,19 +29,16 @@ func BitMain() {
     //testKnightMask("h1")
     //testBishopMask("e7")
     bb := NewBitBoard(NewFen(STARTPOSITION))
-    bb.pretty()
+    bb.Pretty()
 }
 
 type BitBoard struct {
-    pieces map[int]uint64
-    specials uint8
+    layers map[int]uint64 // layers contain the placements for every piece type
+    specials uint8 // special moves castling, en passant go here
 }
 
 func NewBitBoard(f *Fen) *BitBoard {
-    pieces := make(map[int]uint64)
-    //for _, p := range PIECES {
-        //pieces[p] = uint64(0)
-    //}
+    layers := make(map[int]uint64)
 
     fenRows := strings.Split(f.boardString, "/") // assert length 8
     // FEN start with 8th rank, flip it
@@ -51,23 +48,66 @@ func NewBitBoard(f *Fen) *BitBoard {
         for j, rn := range expandedFenRow {
             if FEN_TO_PIECE[string(rn)] != 0 {
                 shift := uint(8 * (7 - i) + j)
-                pieces[FEN_TO_PIECE[string(rn)]] |= (1 << shift)
+                layers[FEN_TO_PIECE[string(rn)]] |= (1 << shift)
             }
         }
     }
-    return &BitBoard{pieces, 0}
+    return &BitBoard{layers, 0}
 }
 
+func (bb *BitBoard) GetPiece(square string) int {
+    sq_bit := bitSquare(square)
+    for piece, layer := range bb.layers {
+        if sq_bit & layer != 0 {
+            return piece
+        }
+    }
+    return 0 // EMPTY_PIECE
+}
+
+func (bb *BitBoard) IsOccupied(square string) bool {
+    sq_bit := bitSquare(square)
+    return sq_bit & bb.occupiedSquares() != 0
+}
+
+
+// TODO: think about naming occupied vs. occupiedSquares
 func (bb *BitBoard) occupied(pieceTypes []int) uint64 {
     result := uint64(0)
     // think about wording piece[s]/pieceType[s]
     for _, pieceType := range pieceTypes {
-        result |= bb.pieces[pieceType]
+        result |= bb.layers[pieceType]
     }
     return result
 }
 
-func (bb *BitBoard) pretty() {
+// there has to be a better solution
+func (bb *BitBoard) makeEmpty(square_bit uint64) {
+    for piece, layer := range bb.layers {
+        if layer & square_bit != 0 {
+            bb.layers[piece] = layer ^ square_bit
+        }
+    }
+}
+
+// TODO: think about naming occupied vs. occupiedSquares
+func (bb *BitBoard) occupiedSquares() uint64 {
+    return bb.occupied(PIECES)  // PIECES are all (12) piece types
+}
+
+func (bb *BitBoard) UpdateBoard(initialSquare, targetSquare string, piece int) {
+    init_sq := bitSquare(initialSquare)
+    targ_sq := bitSquare(targetSquare)
+    // debug
+    if init_sq & bb.layers[piece] == 0 {
+        panic(fmt.Sprintf("piece not on initial square. %s-%s", initialSquare, targetSquare))
+    }
+
+    bb.makeEmpty(init_sq)
+    bb.layers[piece] |= targ_sq
+}
+
+func (bb *BitBoard) Pretty() {
     var sqs = []string{}
 
     // func get 64string
@@ -79,14 +119,33 @@ func (bb *BitBoard) pretty() {
         if occ & sq_bit == 0 { continue }
 
         for _, pieceType := range PIECES {
-            if bb.pieces[pieceType] & sq_bit != 0 {
+            if bb.layers[pieceType] & sq_bit != 0 {
                 sqs[i] = PIECE_TO_FEN[pieceType]
                 break
             }
         }
     }
+    printBoard(sqs)
+}
 
-    // func pretty print
+// just a printer for uint64 for debugging
+func pretty(board uint64) {
+    var empty  = " "
+    var filled = "X"
+
+    var sqs = []string{}
+    for i := 0; i < 64; i++ {
+        if board & (1 << uint(i)) != 0 {
+            sqs = append(sqs, filled)
+        } else {
+            sqs = append(sqs, empty)
+        }
+    }
+    printBoard(sqs)
+}
+
+
+func printBoard(sqs []string) {
     var sep = "+---+---+---+---+---+---+---+---+\n"
     var result string = ""
 
@@ -95,28 +154,6 @@ func (bb *BitBoard) pretty() {
         rank := sqs[8 * r: 8 * (r + 1)]
         for _, sym := range rank {
             result += fmt.Sprintf("| %s ", string(sym))
-        }
-        result += "|\n"
-        result += sep
-    }
-    fmt.Println(result)
-}
-
-
-func pretty(board uint64) {
-    var sep = "+---+---+---+---+---+---+---+---+\n"
-    var result string = ""
-
-    result += sep
-    for rank0 := 7; rank0 >= 0; rank0-- {
-        for file0 := 0; file0 < 8; file0++ {
-            shift := uint8(rank0 * 8 + file0)
-            hit := (board & (1 << shift)) != 0
-            if hit {
-                result += "| X "
-            } else {
-                result += "|   "
-            }
         }
         result += "|\n"
         result += sep

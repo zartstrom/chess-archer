@@ -53,6 +53,7 @@ func (eng *Engine) Start() {
 
 type AnalysisState struct {
     started bool
+    board *BitBoard
     fen *Fen
 }
 
@@ -65,15 +66,19 @@ func (as *AnalysisState) CmdUpdate(cmd string) {
 // FEN start position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
 const STARTPOSITION = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-func NewAnalysisState() *AnalysisState {
+func NewAnalysisState(fenString string) *AnalysisState {
+
+    fen := NewFen(fenString)
+    board := NewBitBoard(fen)
     return &AnalysisState{
-        fen: NewFen(STARTPOSITION),
+        board: board,
+        fen: fen,
     }
 }
 
 func talk(engine_in, engine_out, process_in, process_out chan string) {
     //analysisStarted := false
-    as := NewAnalysisState()
+    as := NewAnalysisState(STARTPOSITION)
 
     for {
         select {
@@ -83,7 +88,7 @@ func talk(engine_in, engine_out, process_in, process_out chan string) {
         case msg := <-process_out:
             if as.started == false {
                 engine_out <- msg
-            } else if line := getVariation(msg, as.fen); line != "" {
+            } else if line := getVariation(msg, as); line != "" {
                 engine_out <- line
             }
         }
@@ -93,7 +98,8 @@ func talk(engine_in, engine_out, process_in, process_out chan string) {
 //"info depth 1 seldepth 1 multipv 1 score cp 56 nodes 33 nps 16500 tbhits 0 time 2 pv e2e3 a7a6"
 var mainlineRegex = regexp.MustCompile(`.*seldepth (?P<depth>\d+).*score cp (?P<score>\d+).*pv (?P<mainline>.*)$`)
 
-func getVariation(msg string, fen *Fen) string {
+// TODO: AnalysisState as parameter is wrong
+func getVariation(msg string, as *AnalysisState) string {
     if !regexp.MustCompile(`seldepth`).MatchString(msg) {
         return ""
     }
@@ -104,7 +110,7 @@ func getVariation(msg string, fen *Fen) string {
     }
     eval, _ := strconv.ParseFloat(result["score"], 64)
     eval = eval / 100
-    prettyLine := prettyLine(result["mainline"], fen) // do it elsewhere
+    prettyLine := prettyLine(result["mainline"], as) // do it elsewhere
     res := fmt.Sprintf("%3.2f - %s", eval, prettyLine)
     return res
 }
@@ -116,36 +122,74 @@ func getVariation(msg string, fen *Fen) string {
 // - Moves by pieces (here pieces = all pieces except pawns) are denoted by a symbol. 
 //   The symbols can be algebraic [R,N,B,Q,K] or figurine [♔ ,♕,♖,♗,♘]
 // - Pawn moves don't have a symbol. When a pawn captures, then add the letter of the file
-//   where the pawn stood before. (exd5)
+//   where the pawn stood before. (i.e. exd5)
 // - Captures are denoted by "x", i.e. Nxb6, or cxd4
 // - Moves should be uniquely identified. I.e. with rooks on a1 and f1 write Rae1.
 //   Likewise with knights on e5 and e3 write N5c4.
 // - Castling has the symbols "0-0" and "0-0-0"
-func prettyLine(line string, fen *Fen) string {
+// TODO: AnalysisState as parameter is wrong
+func prettyLine(line string, as *AnalysisState) string {
     // pretty print a line (=variation)
     var moveNumber int
     var whiteToMove = true
     var res string
+    // learn how to copy struct BitBoard
+    //var board *BitBoard
+    //board := &BitBoard{}
+    //*board = *as.board
+    board := NewBitBoard(as.fen)
 
-    board := NewBoard(fen.boardString)
-
-    if fen.color == "b" {
+    if as.fen.color == "b" {
         res = fmt.Sprintf("%d...", moveNumber)
         whiteToMove = false
     }
     for i, move := range strings.Split(line, " ") {
         if whiteToMove {
-            moveNumber = fen.move + (i + 1) / 2
+            moveNumber = as.fen.move + (i + 1) / 2
             res += fmt.Sprintf("%d.", moveNumber)
         }
+        initialSquare := string(move[:2])
+        targetSquare := string(move[2:4])
+        piece := board.GetPiece(initialSquare)
         res += (styleMove(move, board) + " ")
+        board.UpdateBoard(initialSquare, targetSquare, piece)
         whiteToMove = !whiteToMove
     }
+
+    fmt.Println("\n")
+    fmt.Println(line)
+    board.Pretty()
     return res
 }
 
-func isCapture(targetSquare string, board Board) bool {
-    return board.squares[targetSquare] != "x"
+func styleMove(move string, board *BitBoard) string {
+    initialSquare := string(move[:2])
+    targetSquare := string(move[2:4])
+
+    //piece := FEN_TO_PIECE[board.squares[initialSquare]]
+    piece := board.GetPiece(initialSquare)
+    if piece == WHITE_KING || piece == BLACK_KING {
+        if castlingString, yes := isCastling(move); yes {
+            return castlingString
+        }
+    }
+    // TODO: check for en passant first
+    captureStr := captureString(targetSquare, board)
+    htmlPiece := PIECE_TO_UTF8[piece]
+    return htmlPiece + captureStr + targetSquare
+}
+
+// this implementation misses en passant
+func captureString(targetSquare string, board *BitBoard) string {
+    if board.IsOccupied(targetSquare) { return "x" } else { return "" }
+}
+
+//func isCapture(targetSquare string, board BitBoard) bool {
+//    return board.IsOccupied(targetSquare)
+//}
+
+func isPromotion(move string) bool {
+    return len(move) == 5
 }
 
 func isCastling(move string) (string, bool) {
@@ -159,22 +203,6 @@ func isCastling(move string) (string, bool) {
         return "0-0-0", true
     }
     return "", false
-
-
-}
-
-func styleMove(move string, board *Board) string {
-    initialSquare := string(move[:2])
-    targetSquare := string(move[2:4])
-
-    piece := FEN_TO_PIECE[board.squares[initialSquare]]
-    if piece == WHITE_KING || piece == BLACK_KING {
-        if castlingString, yes := isCastling(move); yes {
-            return castlingString
-        }
-    }
-    htmlPiece := PIECE_TO_UTF8[piece]
-    return htmlPiece + targetSquare
 }
 
 func ValidSquare(square string) bool {
