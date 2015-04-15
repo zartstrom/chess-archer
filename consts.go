@@ -33,6 +33,20 @@ const FEN_BLACK_KNIGHT = "n"
 const FEN_BLACK_PAWN = "p"
 const FEN_EMPTY = "x"
 
+
+const ALGEBRAIC_WHITE_KING = "K"
+const ALGEBRAIC_WHITE_QUEEN = "Q"
+const ALGEBRAIC_WHITE_ROOK = "R"
+const ALGEBRAIC_WHITE_BISHOP = "B"
+const ALGEBRAIC_WHITE_KNIGHT = "N"
+const ALGEBRAIC_WHITE_PAWN = ""
+const ALGEBRAIC_BLACK_KING = "K"
+const ALGEBRAIC_BLACK_QUEEN = "Q"
+const ALGEBRAIC_BLACK_ROOK = "R"
+const ALGEBRAIC_BLACK_BISHOP = "B"
+const ALGEBRAIC_BLACK_KNIGHT = "N"
+const ALGEBRAIC_BLACK_PAWN = ""
+
 const HTML_WHITE_KING = "&#9812;"
 const HTML_WHITE_QUEEN = "&#9813;"
 const HTML_WHITE_ROOK = "&#9814;"
@@ -151,3 +165,102 @@ var PIECE_TO_UTF8 = map[int]string{
     BLACK_KNIGHT: UTF8_BLACK_KNIGHT,
     BLACK_PAWN: UTF8_BLACK_PAWN,
 }
+
+var PIECE_TO_ALGEBRAIC = map[int]string{
+    WHITE_KING: ALGEBRAIC_WHITE_KING,
+    WHITE_QUEEN: ALGEBRAIC_WHITE_QUEEN,
+    WHITE_ROOK: ALGEBRAIC_WHITE_ROOK,
+    WHITE_BISHOP: ALGEBRAIC_WHITE_BISHOP,
+    WHITE_KNIGHT: ALGEBRAIC_WHITE_KNIGHT,
+    WHITE_PAWN: ALGEBRAIC_WHITE_PAWN,
+    BLACK_KING: ALGEBRAIC_BLACK_KING,
+    BLACK_QUEEN: ALGEBRAIC_BLACK_QUEEN,
+    BLACK_ROOK: ALGEBRAIC_BLACK_ROOK,
+    BLACK_BISHOP: ALGEBRAIC_BLACK_BISHOP,
+    BLACK_KNIGHT: ALGEBRAIC_BLACK_KNIGHT,
+    BLACK_PAWN: ALGEBRAIC_BLACK_PAWN,
+}
+
+const NO_CASTLING          = 0
+const WHITE_CASTLING_SHORT = 1
+const WHITE_CASTLING_LONG  = 2
+const BLACK_CASTLING_SHORT = 3
+const BLACK_CASTLING_LONG  = 4
+
+const WHITE_CASTLING_SHORT_STRING = "0-0"
+const BLACK_CASTLING_SHORT_STRING = "0-0"
+const WHITE_CASTLING_LONG_STRING  = "0-0-0"
+const BLACK_CASTLING_LONG_STRING  = "0-0-0"
+
+var CASTLING_TO_STRING = map[int]string{
+    WHITE_CASTLING_SHORT: WHITE_CASTLING_SHORT_STRING,
+    WHITE_CASTLING_LONG:  WHITE_CASTLING_LONG_STRING,
+    BLACK_CASTLING_SHORT: BLACK_CASTLING_SHORT_STRING,
+    BLACK_CASTLING_LONG:  BLACK_CASTLING_LONG_STRING,
+}
+
+const A1 = 1 << 0
+const B1 = 1 << 1
+const C1 = 1 << 2
+const D1 = 1 << 3
+const E1 = 1 << 4
+const F1 = 1 << 5
+const G1 = 1 << 6
+const H1 = 1 << 7
+const A2 = 1 << 8
+const B2 = 1 << 9
+const C2 = 1 << 10
+const D2 = 1 << 11
+const E2 = 1 << 12
+const F2 = 1 << 13
+const G2 = 1 << 14
+const H2 = 1 << 15
+const A3 = 1 << 16
+const B3 = 1 << 17
+const C3 = 1 << 18
+const D3 = 1 << 19
+const E3 = 1 << 20
+const F3 = 1 << 21
+const G3 = 1 << 22
+const H3 = 1 << 23
+const A4 = 1 << 24
+const B4 = 1 << 25
+const C4 = 1 << 26
+const D4 = 1 << 27
+const E4 = 1 << 28
+const F4 = 1 << 29
+const G4 = 1 << 30
+const H4 = 1 << 31
+const A5 = 1 << 32
+const B5 = 1 << 33
+const C5 = 1 << 34
+const D5 = 1 << 35
+const E5 = 1 << 36
+const F5 = 1 << 37
+const G5 = 1 << 38
+const H5 = 1 << 39
+const A6 = 1 << 40
+const B6 = 1 << 41
+const C6 = 1 << 42
+const D6 = 1 << 43
+const E6 = 1 << 44
+const F6 = 1 << 45
+const G6 = 1 << 46
+const H6 = 1 << 47
+const A7 = 1 << 48
+const B7 = 1 << 49
+const C7 = 1 << 50
+const D7 = 1 << 51
+const E7 = 1 << 52
+const F7 = 1 << 53
+const G7 = 1 << 54
+const H7 = 1 << 55
+const A8 = 1 << 56
+const B8 = 1 << 57
+const C8 = 1 << 58
+const D8 = 1 << 59
+const E8 = 1 << 60
+const F8 = 1 << 61
+const G8 = 1 << 62
+const H8 = 1 << 63
+

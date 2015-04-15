@@ -53,7 +53,6 @@ func (eng *Engine) Start() {
 
 type AnalysisState struct {
     started bool
-    board *BitBoard
     fen *Fen
 }
 
@@ -63,15 +62,21 @@ func (as *AnalysisState) CmdUpdate(cmd string) {
     }
 }
 
+func (as *AnalysisState) WhiteToMove() bool {
+    if as.fen.color == "w" { return true } else { return false }
+}
+
+func (as *AnalysisState) MoveNumber() int {
+    return as.fen.move
+}
+
 // FEN start position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
 const STARTPOSITION = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 func NewAnalysisState(fenString string) *AnalysisState {
 
     fen := NewFen(fenString)
-    board := NewBitBoard(fen)
     return &AnalysisState{
-        board: board,
         fen: fen,
     }
 }
@@ -110,13 +115,14 @@ func getVariation(msg string, as *AnalysisState) string {
     }
     eval, _ := strconv.ParseFloat(result["score"], 64)
     eval = eval / 100
-    prettyLine := prettyLine(result["mainline"], as) // do it elsewhere
+    board := NewBitBoard(as.fen)
+    prettyLine := PrettyLine(result["mainline"], board, as.MoveNumber(), as.WhiteToMove())
     res := fmt.Sprintf("%3.2f - %s", eval, prettyLine)
     return res
 }
 
 
-// prettyLine displays a line from the uci engine in a human readable format.
+// PrettyLine displays a line from the uci engine in a human readable format.
 // The function takes a fen position as a parameter to figure out which piece symbol to display
 // and keeps track of the position of the pieces down the line.
 // - Moves by pieces (here pieces = all pieces except pawns) are denoted by a symbol. 
@@ -127,34 +133,30 @@ func getVariation(msg string, as *AnalysisState) string {
 // - Moves should be uniquely identified. I.e. with rooks on a1 and f1 write Rae1.
 //   Likewise with knights on e5 and e3 write N5c4.
 // - Castling has the symbols "0-0" and "0-0-0"
-// TODO: AnalysisState as parameter is wrong
-func prettyLine(line string, as *AnalysisState) string {
-    // pretty print a line (=variation)
-    var moveNumber int
-    var whiteToMove = true
+func PrettyLine(line string, board *BitBoard, moveNumber int, whiteToMove bool) string {
     var res string
-    // learn how to copy struct BitBoard
-    //var board *BitBoard
-    //board := &BitBoard{}
-    //*board = *as.board
-    board := NewBitBoard(as.fen)
+    moveNr := moveNumber
+    // learn how to copy struct BitBoard because it is changed here
+    // board_local := Voodoo(board)
 
-    if as.fen.color == "b" {
-        res = fmt.Sprintf("%d...", moveNumber)
-        whiteToMove = false
+    if !whiteToMove {
+        res = fmt.Sprintf("%d...", moveNr)
     }
+    // apt for recursion
     for i, move := range strings.Split(line, " ") {
         if whiteToMove {
-            moveNumber = as.fen.move + (i + 1) / 2
-            res += fmt.Sprintf("%d.", moveNumber)
+            moveNr = moveNumber + (i + 1) / 2
+            res += fmt.Sprintf("%d.", moveNr)
         }
         initialSquare := string(move[:2])
         targetSquare := string(move[2:4])
         piece := board.GetPiece(initialSquare)
-        res += (styleMove(move, board) + " ")
-        board.UpdateBoard(initialSquare, targetSquare, piece)
+        _, castlingType := isCastling(move, piece)
+        res += (styleMove(move, board, castlingType) + " ")
+        board.UpdateBoard(initialSquare, targetSquare, piece, castlingType)
         whiteToMove = !whiteToMove
     }
+    res = res[:len(res) - 1]  // cut final withspace, where is the better solution
 
     fmt.Println("\n")
     fmt.Println(line)
@@ -162,20 +164,18 @@ func prettyLine(line string, as *AnalysisState) string {
     return res
 }
 
-func styleMove(move string, board *BitBoard) string {
+func styleMove(move string, board *BitBoard, castlingType int) string {
     initialSquare := string(move[:2])
     targetSquare := string(move[2:4])
 
-    //piece := FEN_TO_PIECE[board.squares[initialSquare]]
-    piece := board.GetPiece(initialSquare)
-    if piece == WHITE_KING || piece == BLACK_KING {
-        if castlingString, yes := isCastling(move); yes {
-            return castlingString
-        }
+    if castlingType != NO_CASTLING {
+        return CASTLING_TO_STRING[castlingType]
     }
+
+    piece := board.GetPiece(initialSquare)
     // TODO: check for en passant first
     captureStr := captureString(targetSquare, board)
-    htmlPiece := PIECE_TO_UTF8[piece]
+    htmlPiece := PIECE_TO_ALGEBRAIC[piece]
     return htmlPiece + captureStr + targetSquare
 }
 
@@ -192,17 +192,20 @@ func isPromotion(move string) bool {
     return len(move) == 5
 }
 
-func isCastling(move string) (string, bool) {
-    if move == "e1g1" {
-        return "0-0", true
-    } else if move == "e8g8" {
-        return "0-0", true
-    } else if move == "e1c8" {
-        return "0-0-0", true
-    } else if move == "e8c8" {
-        return "0-0-0", true
+func isCastling(move string, piece int) (bool, int) {
+    if piece != WHITE_KING && piece != BLACK_KING {
+        return false, NO_CASTLING
     }
-    return "", false
+    if move == "e1g1" {
+        return true, WHITE_CASTLING_SHORT
+    } else if move == "e8g8" {
+        return true, BLACK_CASTLING_SHORT
+    } else if move == "e1c8" {
+        return true, WHITE_CASTLING_LONG
+    } else if move == "e8c8" {
+        return true, BLACK_CASTLING_LONG
+    }
+    return false, NO_CASTLING
 }
 
 func ValidSquare(square string) bool {
@@ -226,7 +229,7 @@ func NewFen(s string) *Fen {
     parts := strings.Split(s, " ")
 
     boardString := ""
-    color := ""
+    color := "w"
     castling := ""
     enpassant := ""
     halfmoves := 0
