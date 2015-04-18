@@ -151,9 +151,11 @@ func PrettyLine(line string, board *BitBoard, moveNumber int, whiteToMove bool) 
         initialSquare := string(move[:2])
         targetSquare := string(move[2:4])
         piece := board.GetPiece(initialSquare)
-        _, castlingType := isCastling(move, piece)
-        res += (styleMove(move, board, castlingType) + " ")
-        board.UpdateBoard(initialSquare, targetSquare, piece, castlingType)
+        isCapture, enPassant := board.IsCapture(piece, initialSquare, targetSquare)
+        _, promotedPiece := isPromotion(move, whiteToMove)
+        castlingType := getCastlingType(move, piece)
+        res += (styleMove(move, piece, isCapture, castlingType, promotedPiece) + " ")
+        board.UpdateBoard(initialSquare, targetSquare, piece, castlingType, enPassant, promotedPiece)
         whiteToMove = !whiteToMove
     }
     res = res[:len(res) - 1]  // cut final withspace, where is the better solution
@@ -164,48 +166,67 @@ func PrettyLine(line string, board *BitBoard, moveNumber int, whiteToMove bool) 
     return res
 }
 
-func styleMove(move string, board *BitBoard, castlingType int) string {
+type Move struct {
+    uciMove string
+    whiteToMove bool
+    initialSquare string
+    targetSquare string
+    isCapture bool
+    castlingType int
+    isEnPassant bool
+    isPromotion bool
+    promotionPiece int
+}
+
+func styleMove(move string, piece int, isCapture bool, castlingType int, promoPiece int) string {
     initialSquare := string(move[:2])
     targetSquare := string(move[2:4])
 
     if castlingType != NO_CASTLING {
         return CASTLING_TO_STRING[castlingType]
     }
+    var captureString = getCaptureString(isCapture, piece, initialSquare)
 
-    piece := board.GetPiece(initialSquare)
-    // TODO: check for en passant first
-    captureStr := captureString(targetSquare, board)
-    htmlPiece := PIECE_TO_ALGEBRAIC[piece]
-    return htmlPiece + captureStr + targetSquare
+    pieceSymbol := PIECE_TO_ALGEBRAIC[piece]
+    promoString := ""
+    if promoPiece != 0 {
+        promoString = PIECE_TO_ALGEBRAIC[promoPiece]
+    }
+    return pieceSymbol + captureString + targetSquare + promoString
 }
 
-// this implementation misses en passant
-func captureString(targetSquare string, board *BitBoard) string {
-    if board.IsOccupied(targetSquare) { return "x" } else { return "" }
+func isPromotion(move string, whiteToMove bool) (bool, int) {
+    if len(move) != 5 { return false, NO_PIECE }
+
+    pieceStr := string(move[4])
+    piece := PROMOTION_TO_PIECE[PromotionKey{whiteToMove, pieceStr}]
+    return true, piece
 }
 
-//func isCapture(targetSquare string, board BitBoard) bool {
-//    return board.IsOccupied(targetSquare)
-//}
-
-func isPromotion(move string) bool {
-    return len(move) == 5
+func getCaptureString(isCapture bool, piece int, initialSquare string) string {
+    if !isCapture {
+        return ""
+    } else if piece == WHITE_PAWN || piece == BLACK_PAWN {
+        return fmt.Sprintf("%sx", string(initialSquare[:1]))
+    } else {
+        return "x"
+    }
 }
 
-func isCastling(move string, piece int) (bool, int) {
+func getCastlingType(move string, piece int) int {
     if piece != WHITE_KING && piece != BLACK_KING {
-        return false, NO_CASTLING
+        return NO_CASTLING
     }
     if move == "e1g1" {
-        return true, WHITE_CASTLING_SHORT
+        return WHITE_CASTLING_SHORT
     } else if move == "e8g8" {
-        return true, BLACK_CASTLING_SHORT
-    } else if move == "e1c8" {
-        return true, WHITE_CASTLING_LONG
+        return BLACK_CASTLING_SHORT
+    } else if move == "e1c1" {
+        return WHITE_CASTLING_LONG
     } else if move == "e8c8" {
-        return true, BLACK_CASTLING_LONG
+        return BLACK_CASTLING_LONG
     }
-    return false, NO_CASTLING
+    return NO_CASTLING
 }
 
 func ValidSquare(square string) bool {
@@ -243,48 +264,4 @@ func NewFen(s string) *Fen {
     if len(parts) > 5 { move, _ = strconv.Atoi(parts[5]) }
 
     return &Fen{boardString, color, castling, enpassant, halfmoves, move}
-}
-
-func ExpandRow(r string) string {
-    // 5k2 -> xxxxxkxx
-    res := ""
-
-    for _, run := range r {
-        str := string(run)
-        if regexp.MustCompile(`\d`).MatchString(str) {
-            num, _ := strconv.Atoi(str)
-            res = res + strings.Repeat("x", num)
-        } else {
-            res = res + str
-        }
-    }
-
-    return res
-}
-
-type Board struct {
-    squares map[string]string
-}
-
-func NewBoard(fenPosition string) *Board {
-    cols := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
-    //rows := []string{"1", "2", "3", "4", "5", "6", "7", "8"}
-    fenRows := strings.Split(fenPosition, "/") // assert length 8
-    sqs := make(map[string]string)
-
-    for i, fenRow := range fenRows {
-        expandedFenRow := ExpandRow(fenRow)
-        if i > 7 || i < 0 {
-            panic("bla")
-        }
-        row := fmt.Sprintf("%d", 8 - i)
-        for j, col := range cols {
-            sq := (col + row)
-            sqs[sq] = string(expandedFenRow[j])
-        }
-    }
-
-    return &Board {
-        sqs,
-    }
 }

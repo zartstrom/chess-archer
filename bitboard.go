@@ -5,6 +5,7 @@ import (
     "fmt"
     "regexp"
     "strings"
+    "strconv"
 )
 
 
@@ -43,7 +44,7 @@ func NewBitBoard(f *Fen) *BitBoard {
     fenRows := strings.Split(f.boardString, "/") // assert length 8
     // FEN start with 8th rank, flip it
     for i := 7; i >= 0; i-- {
-        expandedFenRow := ExpandRow(fenRows[i])
+        expandedFenRow := expandRow(fenRows[i])
 
         for j, rn := range expandedFenRow {
             if FEN_TO_PIECE[string(rn)] != 0 {
@@ -53,6 +54,23 @@ func NewBitBoard(f *Fen) *BitBoard {
         }
     }
     return &BitBoard{layers, 0}
+}
+
+func expandRow(r string) string {
+    // 5k2 -> xxxxxkxx
+    res := ""
+
+    for _, run := range r {
+        str := string(run)
+        if regexp.MustCompile(`\d`).MatchString(str) {
+            num, _ := strconv.Atoi(str)
+            res = res + strings.Repeat("x", num)
+        } else {
+            res = res + str
+        }
+    }
+
+    return res
 }
 
 func NewBitBoardStart() *BitBoard {
@@ -69,7 +87,26 @@ func (bb *BitBoard) GetPiece(square string) int {
     return 0 // EMPTY_PIECE
 }
 
-func (bb *BitBoard) IsOccupied(square string) bool {
+func (bb *BitBoard) IsCapture(piece int, initialSquare, targetSquare string) (bool, uint64) {
+    if bb.isOccupied(targetSquare) { return true, 0}
+
+    if piece != WHITE_PAWN && piece != BLACK_PAWN { return false, 0 }
+
+    // check for en passant
+    from := BitSquare(initialSquare)
+    to   := BitSquare(targetSquare)
+    if piece == WHITE_PAWN &&
+                (shift(from, DELTA_NW) == to) || (shift(from, DELTA_NE) == to) {
+        return true, shift(to, DELTA_S)
+    }
+    if piece == BLACK_PAWN &&
+                (shift(from, DELTA_SW) == to) || (shift(from, DELTA_SE) == to) {
+        return true, shift(to, DELTA_N)
+    }
+    return false, 0
+}
+
+func (bb *BitBoard) isOccupied(square string) bool {
     sq_bit := BitSquare(square)
     return sq_bit & bb.occupiedSquares() != 0
 }
@@ -86,7 +123,7 @@ func (bb *BitBoard) occupied(pieceTypes []int) uint64 {
 }
 
 // there has to be a better solution
-func (bb *BitBoard) makeEmpty(square_bit uint64) {
+func (bb *BitBoard) clearSquare(square_bit uint64) {
     for piece, layer := range bb.layers {
         if layer & square_bit != 0 {
             bb.layers[piece] = layer ^ square_bit
@@ -99,7 +136,8 @@ func (bb *BitBoard) occupiedSquares() uint64 {
     return bb.occupied(PIECES)  // PIECES are all (12) piece types
 }
 
-func (bb *BitBoard) UpdateBoard(initialSquare, targetSquare string, piece int, castlingType int) {
+// TODO: clean up this mess
+func (bb *BitBoard) UpdateBoard(initialSquare, targetSquare string, piece int, castlingType int, enPassant uint64, promoPiece int) {
     if castlingType != NO_CASTLING {
         bb.handleCastling(castlingType)
         return
@@ -111,8 +149,17 @@ func (bb *BitBoard) UpdateBoard(initialSquare, targetSquare string, piece int, c
         panic(fmt.Sprintf("piece not on initial square. %s-%s", initialSquare, targetSquare))
     }
 
-    bb.makeEmpty(init_sq)
-    bb.layers[piece] |= targ_sq
+    bb.clearSquare(targ_sq)
+    bb.move(piece, init_sq, targ_sq)
+    if (piece == WHITE_PAWN || piece == BLACK_PAWN) {
+        if enPassant != 0 {
+            bb.clearSquare(enPassant)
+        }
+        if promoPiece != 0 {
+            bb.clearSquare(targ_sq)
+            bb.layers[promoPiece] |= targ_sq
+        }
+    }
 }
 
 func (bb *BitBoard) handleCastling(castlingType int) {

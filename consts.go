@@ -13,6 +13,7 @@ const BLACK_ROOK = 11
 const BLACK_BISHOP = 12
 const BLACK_KNIGHT = 13
 const BLACK_PAWN = 14
+const NO_PIECE = 0
 
 var PIECES = []int{
     WHITE_KING, WHITE_QUEEN, WHITE_ROOK, WHITE_BISHOP, WHITE_KNIGHT, WHITE_PAWN,
@@ -264,3 +265,22 @@ const F8 = 1 << 61
 const G8 = 1 << 62
 const H8 = 1 << 63
 
+
+type PromotionKey struct {
+    white bool
+    uciPromotion string
+}
+
+const WHITE = true
+const BLACK = false
+
+var PROMOTION_TO_PIECE = map[PromotionKey]int {
+    PromotionKey{WHITE, "q"} : WHITE_QUEEN,
+    PromotionKey{WHITE, "r"} : WHITE_ROOK,
+    PromotionKey{WHITE, "b"} : WHITE_BISHOP,
+    PromotionKey{WHITE, "n"} : WHITE_KNIGHT,
+    PromotionKey{BLACK, "q"} : BLACK_QUEEN,
+    PromotionKey{BLACK, "r"} : BLACK_ROOK,
+    PromotionKey{BLACK, "b"} : BLACK_BISHOP,
+    PromotionKey{BLACK, "n"} : BLACK_KNIGHT,
+}
