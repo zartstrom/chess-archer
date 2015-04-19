@@ -14,6 +14,13 @@ const BLACK_BISHOP = 12
 const BLACK_KNIGHT = 13
 const BLACK_PAWN = 14
 const NO_PIECE = 0
+// it holds: WHITE_PIECE % 8 == PIECE == BLACK_PIECE % 8
+const KING = 1
+const QUEEN = 2
+const ROOK = 3
+const BISHOP = 4
+const KNIGHT = 5
+const PAWN = 6
 
 var PIECES = []int{
     WHITE_KING, WHITE_QUEEN, WHITE_ROOK, WHITE_BISHOP, WHITE_KNIGHT, WHITE_PAWN,

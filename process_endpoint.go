@@ -81,14 +81,14 @@ func (pe *ProcessEndpoint) Terminate() {
 		//pe.log.Debug("process", "Failed to Interrupt process %v: %s, attempting to kill", pe.process.cmd.Process.Pid, err)
 		err = pe.process.cmd.Process.Kill()
 		if err != nil {
-            panic(err)
+			log.Printf("Failed to Kill process %v: %s\n", pe.process.cmd.Process.Pid, err)
 			//pe.log.Debug("process", "Failed to Kill process %v: %s", pe.process.cmd.Process.Pid, err)
 		}
 	}
 
 	pe.process.cmd.Wait()
 	if err != nil {
-        panic(err)
+		log.Printf("Failed to reap process %v: %s\n", pe.process.cmd.Process.Pid, err)
 		//pe.log.Debug("process", "Failed to reap process %v: %s", pe.process.cmd.Process.Pid, err)
 	}
 }
@@ -118,7 +118,9 @@ func (pe *ProcessEndpoint) process_stdout() {
                 panic(err)
 			} else {
                 log.Println("process: Process STDOUT closed")
-                panic(err)
+                pe.Terminate()
+                pe.err <- true
+                //panic(err)
 			}
 			break
 		}
@@ -131,13 +133,15 @@ func (pe *ProcessEndpoint) log_stderr() {
 	bufstderr := bufio.NewReader(pe.process.stderr)
 	for {
 		//str, err := bufstderr.ReadString('\n')
-		_, err := bufstderr.ReadString('\n')
+		str, err := bufstderr.ReadString('\n')
+        log.Println("stderr")
+        log.Println(str)
 		if err != nil {
 			if err != io.EOF {
                 panic(err)
 				//pe.log.Error("process", "Unexpected error while reading STDERR from process: %s", err)
 			} else {
-                panic(err)
+                pe.err <- true
 				//pe.log.Debug("process", "Process STDERR closed")
 			}
 			break

@@ -48,7 +48,9 @@ func (eng *Engine) Terminate() { eng.process.Terminate() }
 
 func (eng *Engine) Start() {
     eng.process.Start()
-    go talk(eng.input, eng.output, eng.process.Input(), eng.process.Output())  // add the err channels!
+    go talk(eng.input, eng.output,
+            eng.process.Input(), eng.process.Output(),
+            eng.err, eng.process.Err())
 }
 
 type AnalysisState struct {
@@ -81,7 +83,7 @@ func NewAnalysisState(fenString string) *AnalysisState {
     }
 }
 
-func talk(engine_in, engine_out, process_in, process_out chan string) {
+func talk(engine_in, engine_out, process_in, process_out chan string, engine_err, process_err chan bool) {
     //analysisStarted := false
     as := NewAnalysisState(STARTPOSITION)
 
@@ -96,6 +98,11 @@ func talk(engine_in, engine_out, process_in, process_out chan string) {
             } else if line := getVariation(msg, as); line != "" {
                 engine_out <- line
             }
+        case <-engine_err:
+
+            return
+        case <-process_err:
+            return
         }
     }
 }
@@ -125,7 +132,7 @@ func getVariation(msg string, as *AnalysisState) string {
 // PrettyLine displays a line from the uci engine in a human readable format.
 // The function takes a fen position as a parameter to figure out which piece symbol to display
 // and keeps track of the position of the pieces down the line.
-// - Moves by pieces (here pieces = all pieces except pawns) are denoted by a symbol. 
+// - Moves by pieces (here pieces = all pieces except pawns) are denoted by a symbol.
 //   The symbols can be algebraic [R,N,B,Q,K] or figurine [♔ ,♕,♖,♗,♘]
 // - Pawn moves don't have a symbol. When a pawn captures, then add the letter of the file
 //   where the pawn stood before. (i.e. exd5)
@@ -134,107 +141,153 @@ func getVariation(msg string, as *AnalysisState) string {
 //   Likewise with knights on e5 and e3 write N5c4.
 // - Castling has the symbols "0-0" and "0-0-0"
 func PrettyLine(line string, board *BitBoard, moveNumber int, whiteToMove bool) string {
-    var res string
-    moveNr := moveNumber
     // learn how to copy struct BitBoard because it is changed here
     // board_local := Voodoo(board)
 
-    if !whiteToMove {
-        res = fmt.Sprintf("%d...", moveNr)
+    moves := []*Move{}
+    for _, uciMove := range strings.Split(line, " ") {
+        move := NewMove(uciMove, board)
+        board.UpdateBoard(move)
+        moves = append(moves, move)
     }
-    // apt for recursion
-    for i, move := range strings.Split(line, " ") {
-        if whiteToMove {
-            moveNr = moveNumber + (i + 1) / 2
-            res += fmt.Sprintf("%d.", moveNr)
-        }
-        initialSquare := string(move[:2])
-        targetSquare := string(move[2:4])
-        piece := board.GetPiece(initialSquare)
-        isCapture, enPassant := board.IsCapture(piece, initialSquare, targetSquare)
-        _, promotedPiece := isPromotion(move, whiteToMove)
-        castlingType := getCastlingType(move, piece)
-        res += (styleMove(move, piece, isCapture, castlingType, promotedPiece) + " ")
-        board.UpdateBoard(initialSquare, targetSquare, piece, castlingType, enPassant, promotedPiece)
-        whiteToMove = !whiteToMove
-    }
-    res = res[:len(res) - 1]  // cut final withspace, where is the better solution
 
     fmt.Println("\n")
     fmt.Println(line)
     board.Pretty()
-    return res
+    return styleLine(moves, moveNumber, whiteToMove, "")
 }
 
-type Move struct {
-    uciMove string
-    whiteToMove bool
-    initialSquare string
-    targetSquare string
-    isCapture bool
-    castlingType int
-    isEnPassant bool
-    isPromotion bool
-    promotionPiece int
-}
+func styleLine(moves []*Move, moveNumber int, whiteToMove bool, result string) string {
+    if len(moves) == 0 { return "" } // defensive programming
 
-func styleMove(move string, piece int, isCapture bool, castlingType int, promoPiece int) string {
-    initialSquare := string(move[:2])
-    targetSquare := string(move[2:4])
-
-    if castlingType != NO_CASTLING {
-        return CASTLING_TO_STRING[castlingType]
+    if result != "" {
+        result += " "
     }
-    var captureString = getCaptureString(isCapture, piece, initialSquare)
 
-    pieceSymbol := PIECE_TO_ALGEBRAIC[piece]
-    promoString := ""
-    if promoPiece != 0 {
-        promoString = PIECE_TO_ALGEBRAIC[promoPiece]
+    if whiteToMove {
+        result += fmt.Sprintf("%d.", moveNumber)
+    } else if !whiteToMove && result == "" {
+        // first move in line is a black move
+        result += fmt.Sprintf("%d...", moveNumber)
     }
-    return pieceSymbol + captureString + targetSquare + promoString
+
+    result += styleMove(moves[0])
+
+    if len(moves) == 1 {
+        return result
+    } else {
+        if !whiteToMove { moveNumber += 1 }
+        return styleLine(moves[1:], moveNumber, !whiteToMove, result)
+    }
 }
 
-func isPromotion(move string, whiteToMove bool) (bool, int) {
-    if len(move) != 5 { return false, NO_PIECE }
+func styleMove(move *Move) string {
+    if move.isCastling {
+        return CASTLING_TO_STRING[move.castlingType]
+    }
 
-    pieceStr := string(move[4])
-    piece := PROMOTION_TO_PIECE[PromotionKey{whiteToMove, pieceStr}]
-    return true, piece
+    pieceSymbol     := PIECE_TO_ALGEBRAIC[move.piece]
+    captureString   := getCaptureString(move)
+    promotionString := getPromotionString(move)
+
+    return pieceSymbol + captureString + move.targetSquare + promotionString
 }
 
-func getCaptureString(isCapture bool, piece int, initialSquare string) string {
-    if !isCapture {
+func getCaptureString(move *Move) string {
+    if !move.isCapture {
         return ""
-    } else if piece == WHITE_PAWN || piece == BLACK_PAWN {
-        return fmt.Sprintf("%sx", string(initialSquare[:1]))
+    } else if typeOf(move.piece, PAWN) {
+        return fmt.Sprintf("%sx", string(move.initialSquare[:1]))
     } else {
         return "x"
     }
 }
 
-func getCastlingType(move string, piece int) int {
-    if piece != WHITE_KING && piece != BLACK_KING {
-        return NO_CASTLING
+func getPromotionString(move *Move) string {
+    if move.isPromotion {
+        return PIECE_TO_ALGEBRAIC[move.promotionPiece]
     }
-    if move == "e1g1" {
-        return WHITE_CASTLING_SHORT
-    } else if move == "e8g8" {
-        return BLACK_CASTLING_SHORT
-    } else if move == "e1c1" {
-        return WHITE_CASTLING_LONG
-    } else if move == "e8c8" {
-        return BLACK_CASTLING_LONG
-    }
-    return NO_CASTLING
+    return ""
 }
 
-func ValidSquare(square string) bool {
-    // assert valid square
-    if regexp.MustCompile(`^[abcdefgh][1-8]$`).MatchString(square) {
-        return true
+type Move struct {
+    uciMove string
+    initialSquare string
+    targetSquare string
+    piece int
+
+    isCastling bool
+    castlingType int
+
+    isCapture bool
+    isEnPassant bool
+    enPassantSquare uint64
+
+    isPromotion bool
+    promotionPiece int
+}
+
+func NewMove(uciMove string, board *BitBoard) *Move {
+    initialSquare   := string(uciMove[:2])
+    targetSquare    := string(uciMove[2:4])
+    piece           := board.GetPiece(initialSquare)
+    isCastling      := false
+    castlingType    := NO_CASTLING
+    isCapture       := false
+    isEnPassant     := false
+    enPassantSquare := uint64(0)
+    isPromotion     := false
+    promotionPiece  := NO_PIECE
+
+    if typeOf(piece, KING) {
+        isCastling, castlingType = checkCastling(uciMove, piece)
     }
-    return false
+    if typeOf(piece, PAWN) {
+        isCapture, isEnPassant, enPassantSquare = board.IsPawnCapture(piece, initialSquare, targetSquare)
+        isPromotion, promotionPiece = checkPromotion(uciMove, targetSquare)
+    } else {
+        isCapture = board.IsCapture(piece, targetSquare)
+    }
+
+    return &Move{uciMove, initialSquare, targetSquare, piece, isCastling,
+        castlingType, isCapture, isEnPassant, enPassantSquare, isPromotion, promotionPiece}
+}
+
+// typeOf takes a some piece and checks for piece type
+func typeOf(somePiece int, piece int) bool {
+    return somePiece % 8 == piece
+}
+
+func checkCastling(move string, piece int) (bool, int) {
+    if piece != WHITE_KING && piece != BLACK_KING {
+        return false, NO_CASTLING
+    }
+    if move == "e1g1" {
+        return true, WHITE_CASTLING_SHORT
+    } else if move == "e8g8" {
+        return true, BLACK_CASTLING_SHORT
+    } else if move == "e1c1" {
+        return true, WHITE_CASTLING_LONG
+    } else if move == "e8c8" {
+        return true, BLACK_CASTLING_LONG
+    }
+    return false, NO_CASTLING
+}
+
+func checkPromotion(move string, targetSquare string) (bool, int) {
+    if len(move) != 5 { return false, NO_PIECE }
+
+    pieceStr := string(move[4])
+    rankNr, _ := squareToCoords(targetSquare)
+    var color bool
+    if rankNr == 7 {
+        color = WHITE
+    } else if rankNr == 0 {
+        color = BLACK
+    } else { panic("invalid rank for promotion") }
+
+    piece := PROMOTION_TO_PIECE[PromotionKey{color, pieceStr}]
+    return true, piece
 }
 
 type Fen struct {

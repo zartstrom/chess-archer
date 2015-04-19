@@ -29,8 +29,8 @@ func BitMain() {
     //pretty(piece.Moves(w_pieces, b_pieces))
     //testKnightMask("h1")
     //testBishopMask("e7")
-    bb := NewBitBoard(NewFen(STARTPOSITION))
-    bb.Pretty()
+    board := NewBitBoard(NewFen(STARTPOSITION))
+    board.Pretty()
 }
 
 type BitBoard struct {
@@ -77,9 +77,9 @@ func NewBitBoardStart() *BitBoard {
     return NewBitBoard(NewFen(STARTPOSITION))
 }
 
-func (bb *BitBoard) GetPiece(square string) int {
+func (board *BitBoard) GetPiece(square string) int {
     sq_bit := BitSquare(square)
-    for piece, layer := range bb.layers {
+    for piece, layer := range board.layers {
         if sq_bit & layer != 0 {
             return piece
         }
@@ -87,107 +87,115 @@ func (bb *BitBoard) GetPiece(square string) int {
     return 0 // EMPTY_PIECE
 }
 
-func (bb *BitBoard) IsCapture(piece int, initialSquare, targetSquare string) (bool, uint64) {
-    if bb.isOccupied(targetSquare) { return true, 0}
+// IsCapture checks for all pieces except pawns if the move is a capture
+func (board *BitBoard) IsCapture(piece int, targetSquare string) bool {
+    if typeOf(piece, PAWN) { panic("No pawn allowed here!") }
 
-    if piece != WHITE_PAWN && piece != BLACK_PAWN { return false, 0 }
-
-    // check for en passant
-    from := BitSquare(initialSquare)
-    to   := BitSquare(targetSquare)
-    if piece == WHITE_PAWN &&
-                (shift(from, DELTA_NW) == to) || (shift(from, DELTA_NE) == to) {
-        return true, shift(to, DELTA_S)
-    }
-    if piece == BLACK_PAWN &&
-                (shift(from, DELTA_SW) == to) || (shift(from, DELTA_SE) == to) {
-        return true, shift(to, DELTA_N)
-    }
-    return false, 0
+    if board.isOccupied(targetSquare) { return true } else { return false }
 }
 
-func (bb *BitBoard) isOccupied(square string) bool {
+// IsPawnCapture returns a triple (isCapture bool, isEnPassant bool, enPassantSquare uint64)
+func (board *BitBoard) IsPawnCapture(piece int, initialSquare, targetSquare string) (bool, bool, uint64) {
+    if !typeOf(piece, PAWN) { panic("Only pawns allowed here!") }
+
+    if board.isOccupied(targetSquare) {
+        return true, false, 0
+    }
+
+    fromRank, fromFile := squareToCoords(initialSquare)
+    _,        toFile   := squareToCoords(targetSquare)
+
+    if fromFile == toFile {
+        // forward move
+        return false, false, 0
+    } else {
+        // en passant
+        shift := uint(8 * fromRank + toFile)
+        return true, true, (1 << shift)
+    }
+}
+
+func (board *BitBoard) isOccupied(square string) bool {
     sq_bit := BitSquare(square)
-    return sq_bit & bb.occupiedSquares() != 0
+    return sq_bit & board.occupiedSquares() != 0
 }
 
 
 // TODO: think about naming occupied vs. occupiedSquares
-func (bb *BitBoard) occupied(pieceTypes []int) uint64 {
+func (board *BitBoard) occupied(pieceTypes []int) uint64 {
     result := uint64(0)
     // think about wording piece[s]/pieceType[s]
     for _, pieceType := range pieceTypes {
-        result |= bb.layers[pieceType]
+        result |= board.layers[pieceType]
     }
     return result
 }
 
 // there has to be a better solution
-func (bb *BitBoard) clearSquare(square_bit uint64) {
-    for piece, layer := range bb.layers {
+func (board *BitBoard) clearSquare(square_bit uint64) {
+    for piece, layer := range board.layers {
         if layer & square_bit != 0 {
-            bb.layers[piece] = layer ^ square_bit
+            board.layers[piece] = layer ^ square_bit
         }
     }
 }
 
 // TODO: think about naming occupied vs. occupiedSquares
-func (bb *BitBoard) occupiedSquares() uint64 {
-    return bb.occupied(PIECES)  // PIECES are all (12) piece types
+func (board *BitBoard) occupiedSquares() uint64 {
+    return board.occupied(PIECES)  // PIECES are all (12) piece types
 }
 
-// TODO: clean up this mess
-func (bb *BitBoard) UpdateBoard(initialSquare, targetSquare string, piece int, castlingType int, enPassant uint64, promoPiece int) {
-    if castlingType != NO_CASTLING {
-        bb.handleCastling(castlingType)
+func (board *BitBoard) UpdateBoard(move *Move) {
+    if move.isCastling {
+        board.handleCastling(move.castlingType)
         return
     }
-    init_sq := BitSquare(initialSquare)
-    targ_sq := BitSquare(targetSquare)
-    // debug
-    if init_sq & bb.layers[piece] == 0 {
-        panic(fmt.Sprintf("piece not on initial square. %s-%s", initialSquare, targetSquare))
+    init_sq := BitSquare(move.initialSquare)
+    targ_sq := BitSquare(move.targetSquare)
+    // assert there is piece on initial square
+    if init_sq & board.layers[move.piece] == 0 {
+        panic(fmt.Sprintf("piece not on initial square. %s-%s", move.initialSquare, move.targetSquare))
     }
 
-    bb.clearSquare(targ_sq)
-    bb.move(piece, init_sq, targ_sq)
-    if (piece == WHITE_PAWN || piece == BLACK_PAWN) {
-        if enPassant != 0 {
-            bb.clearSquare(enPassant)
+    board.clearSquare(targ_sq)
+    board.move(move.piece, init_sq, targ_sq)
+    if typeOf(move.piece, PAWN) {
+        if move.isEnPassant {
+            board.clearSquare(move.enPassantSquare)
         }
-        if promoPiece != 0 {
-            bb.clearSquare(targ_sq)
-            bb.layers[promoPiece] |= targ_sq
+        if move.isPromotion {
+            board.clearSquare(targ_sq)
+            board.layers[move.promotionPiece] |= targ_sq
         }
     }
 }
 
-func (bb *BitBoard) handleCastling(castlingType int) {
+func (board *BitBoard) handleCastling(castlingType int) {
     if castlingType == WHITE_CASTLING_SHORT {
-        bb.move(WHITE_KING, E1, G1)
-        bb.move(WHITE_ROOK, H1, F1)
+        board.move(WHITE_KING, E1, G1)
+        board.move(WHITE_ROOK, H1, F1)
     } else if castlingType == BLACK_CASTLING_SHORT {
-        bb.move(BLACK_KING, E8, G8)
-        bb.move(BLACK_ROOK, H8, F8)
+        board.move(BLACK_KING, E8, G8)
+        board.move(BLACK_ROOK, H8, F8)
     } else if castlingType == WHITE_CASTLING_LONG {
-        bb.move(WHITE_KING, E1, C1)
-        bb.move(WHITE_ROOK, A1, D1)
+        board.move(WHITE_KING, E1, C1)
+        board.move(WHITE_ROOK, A1, D1)
     } else if castlingType == BLACK_CASTLING_LONG {
-        bb.move(BLACK_KING, E8, C8)
-        bb.move(BLACK_ROOK, A8, D8)
+        board.move(BLACK_KING, E8, C8)
+        board.move(BLACK_ROOK, A8, D8)
     }
 }
 
-func (bb *BitBoard) move(piece int, from uint64, to uint64) {
-    bb.layers[piece] ^= from
-    bb.layers[piece] |= to
+func (board *BitBoard) move(piece int, from uint64, to uint64) {
+    board.layers[piece] ^= from
+    board.layers[piece] |= to
 }
 
-func (bb *BitBoard) Pretty() {
+func (board *BitBoard) Pretty() {
     var sqs = []string{}
 
     // func get 64string
-    occ := bb.occupied(PIECES)
+    occ := board.occupied(PIECES)
     for i := 0; i < 64; i++ {
         sqs = append(sqs, " ")
         var sq_bit uint64
@@ -195,7 +203,7 @@ func (bb *BitBoard) Pretty() {
         if occ & sq_bit == 0 { continue }
 
         for _, pieceType := range PIECES {
-            if bb.layers[pieceType] & sq_bit != 0 {
+            if board.layers[pieceType] & sq_bit != 0 {
                 sqs[i] = PIECE_TO_FEN[pieceType]
                 break
             }
@@ -238,8 +246,8 @@ func printBoard(sqs []string) {
 }
 
 var SQUARE_REGEX = regexp.MustCompile(`^(?P<fileChar>\w+)(?P<rankChar>\d+)$`)
-var fileShift = map[string]int{"a" : 0, "b" : 1, "c" : 2, "d": 3, "e" : 4, "f" : 5, "g" : 6, "h": 7,}
-var rankShift = map[string]int{"1" : 0, "2" : 1, "3" : 2, "4": 3, "5" : 4, "6" : 5, "7" : 6, "8": 7,}
+var fileMap = map[string]int{"a" : 0, "b" : 1, "c" : 2, "d": 3, "e" : 4, "f" : 5, "g" : 6, "h": 7,}
+var rankMap = map[string]int{"1" : 0, "2" : 1, "3" : 2, "4": 3, "5" : 4, "6" : 5, "7" : 6, "8": 7,}
 
 func squareToCoords(square string) (int, int) {
     // a1 -> (0, 0), h1 -> (0, 7), h8 -> (7, 7)
@@ -249,7 +257,7 @@ func squareToCoords(square string) (int, int) {
     for i, name := range SQUARE_REGEX.SubexpNames() {
         subs[name] = match[i]
     }
-    return rankShift[subs["rankChar"]], fileShift[subs["fileChar"]]
+    return rankMap[subs["rankChar"]], fileMap[subs["fileChar"]]
 }
 
 func BitSquare(square string) uint64 {
