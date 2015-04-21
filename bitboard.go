@@ -21,11 +21,11 @@ func BitMain() {
     //testSquareToBit("f7")
     //testSquareToBit("f4")
     //testRookMask("e4")
-    w_pieces := setPieces("f1", "e2", "b4", "e6")
-    b_pieces := setPieces("b7", "c7", "g7", "h7")
+    //w_pieces := setPieces("f1", "e2", "b4", "e6")
+    //b_pieces := setPieces("b7", "c7", "g7", "h7")
     //testBishopMoves("g2", w_pieces, b_pieces)
     //piece := NewPiece("Q", "e7")
-    testPieceMoves("B", "b3", w_pieces, b_pieces)
+    //broken: testPieceMoves("B", "b3", w_pieces, b_pieces)
     //pretty(piece.Moves(w_pieces, b_pieces))
     //testKnightMask("h1")
     //testBishopMask("e7")
@@ -34,12 +34,12 @@ func BitMain() {
 }
 
 type BitBoard struct {
-    layers map[int]uint64 // layers contain the placements for every piece type
+    layers map[PieceType]uint64 // layers contain the placements for every piece type
     specials uint8 // special moves castling, en passant go here
 }
 
 func NewBitBoard(f *Fen) *BitBoard {
-    layers := make(map[int]uint64)
+    layers := make(map[PieceType]uint64)
 
     fenRows := strings.Split(f.boardString, "/") // assert length 8
     // FEN start with 8th rank, flip it
@@ -77,33 +77,41 @@ func NewBitBoardStart() *BitBoard {
     return NewBitBoard(NewFen(STARTPOSITION))
 }
 
-func (board *BitBoard) GetPiece(square string) int {
-    sq_bit := BitSquare(square)
-    for piece, layer := range board.layers {
+func (board *BitBoard) GetPiece(square *Square) PieceType {
+    sq_bit := square.bit()
+    for pieceType, layer := range board.layers {
         if sq_bit & layer != 0 {
-            return piece
+            return pieceType
         }
     }
-    return 0 // EMPTY_PIECE
+    return NO_PIECE
+}
+
+func (board *BitBoard) whitePieces() uint64 {
+    return board.get(WHITE_PIECES)
+}
+
+func (board *BitBoard) blackPieces() uint64 {
+    return board.get(BLACK_PIECES)
 }
 
 // IsCapture checks for all pieces except pawns if the move is a capture
-func (board *BitBoard) IsCapture(piece int, targetSquare string) bool {
-    if typeOf(piece, PAWN) { panic("No pawn allowed here!") }
+func (board *BitBoard) IsCapture(pieceType PieceType, targetSquare *Square) bool {
+    if pieceType.is(PAWN) { panic("No pawns allowed here!") }
 
     if board.isOccupied(targetSquare) { return true } else { return false }
 }
 
 // IsPawnCapture returns a triple (isCapture bool, isEnPassant bool, enPassantSquare uint64)
-func (board *BitBoard) IsPawnCapture(piece int, initialSquare, targetSquare string) (bool, bool, uint64) {
-    if !typeOf(piece, PAWN) { panic("Only pawns allowed here!") }
+func (board *BitBoard) IsPawnCapture(pieceType PieceType, initialSquare, targetSquare *Square) (bool, bool, uint64) {
+    if !pieceType.is(PAWN) { panic("Only pawns allowed here!") }
 
     if board.isOccupied(targetSquare) {
         return true, false, 0
     }
 
-    fromRank, fromFile := squareToCoords(initialSquare)
-    _,        toFile   := squareToCoords(targetSquare)
+    fromFile, fromRank := initialSquare.coords()
+    toFile,   _        := targetSquare.coords()
 
     if fromFile == toFile {
         // forward move
@@ -115,14 +123,69 @@ func (board *BitBoard) IsPawnCapture(piece int, initialSquare, targetSquare stri
     }
 }
 
-func (board *BitBoard) isOccupied(square string) bool {
-    sq_bit := BitSquare(square)
-    return sq_bit & board.occupiedSquares() != 0
+// GetUnambiguity provides information which piece moved to a certain square
+// It gives the "f" in "Rfc1" or the "5" in "N5c4"
+func (board *BitBoard) GetUnambiguity(pieceType PieceType, initialSquare, targetSquare *Square) string {
+    layer := board.layers[pieceType]
+    rest := layer ^ initialSquare.bit()
+    positions := findBitPositions(rest)
+    pieces := []Mover{}
+
+    // TODO: make it work for four queens and more
+    // TODO: clean it up
+    res_file := ""
+    res_rank := ""
+    for _, num := range positions {
+        // TODO: this initialization is pretty awkward
+        square := NewSquareByNum(num)
+        p := NewPiece(pieceType, square)
+        pieces = append(pieces, p)
+
+        if p.Moves(board.whitePieces(), board.blackPieces()) & targetSquare.bit() != 0 {
+            if square.file != initialSquare.file {
+                res_file = initialSquare.file
+            } else {
+                res_rank = initialSquare.rank
+            }
+        }
+    }
+    return res_file + res_rank
+}
+
+// findBitPositions returns the positions of 1s in a number
+// A 8-bit example: 10000110 -> [1, 2, 7]
+// TODO: think about where to move this two functions
+func findBitPositions(t uint64) []int {
+    result := []int{}
+    return find(t, 0, 6, result) // 64bit -> depth = 6
+}
+
+func find(t uint64, position int, depth int, result []int) []int {
+    // position 0 // depth = 6 // shift = 32
+    if t == 0 {
+        return result
+    } else if depth == 0 {
+        if t == 1 {
+            result = append(result, position)
+        }
+        return result
+    } else {
+        shift := 1 << uint(depth - 1)
+        ones  := (uint64(1) << uint(shift)) - 1
+        left  := t >> uint(shift)
+        right := t & ones
+
+        return find(left, position + shift, depth - 1, find(right, position, depth - 1, result))
+    }
+}
+
+func (board *BitBoard) isOccupied(square *Square) bool {
+    return square.bit() & board.occupiedSquares() != 0
 }
 
 
-// TODO: think about naming occupied vs. occupiedSquares
-func (board *BitBoard) occupied(pieceTypes []int) uint64 {
+// TODO: think about naming get vs. occupiedSquares
+func (board *BitBoard) get(pieceTypes []PieceType) uint64 {
     result := uint64(0)
     // think about wording piece[s]/pieceType[s]
     for _, pieceType := range pieceTypes {
@@ -133,16 +196,16 @@ func (board *BitBoard) occupied(pieceTypes []int) uint64 {
 
 // there has to be a better solution
 func (board *BitBoard) clearSquare(square_bit uint64) {
-    for piece, layer := range board.layers {
+    for pieceType, layer := range board.layers {
         if layer & square_bit != 0 {
-            board.layers[piece] = layer ^ square_bit
+            board.layers[pieceType] = layer ^ square_bit
         }
     }
 }
 
-// TODO: think about naming occupied vs. occupiedSquares
+// TODO: think about naming get vs. occupiedSquares
 func (board *BitBoard) occupiedSquares() uint64 {
-    return board.occupied(PIECES)  // PIECES are all (12) piece types
+    return board.get(PIECES)  // PIECES are all (12) piece types
 }
 
 func (board *BitBoard) UpdateBoard(move *Move) {
@@ -150,16 +213,16 @@ func (board *BitBoard) UpdateBoard(move *Move) {
         board.handleCastling(move.castlingType)
         return
     }
-    init_sq := BitSquare(move.initialSquare)
-    targ_sq := BitSquare(move.targetSquare)
+    init_sq := move.initialSquare.bit()
+    targ_sq := move.targetSquare.bit()
     // assert there is piece on initial square
-    if init_sq & board.layers[move.piece] == 0 {
+    if init_sq & board.layers[move.pieceType] == 0 {
         panic(fmt.Sprintf("piece not on initial square. %s-%s", move.initialSquare, move.targetSquare))
     }
 
     board.clearSquare(targ_sq)
-    board.move(move.piece, init_sq, targ_sq)
-    if typeOf(move.piece, PAWN) {
+    board.move(move.pieceType, init_sq, targ_sq)
+    if move.pieceType.is(PAWN) {
         if move.isEnPassant {
             board.clearSquare(move.enPassantSquare)
         }
@@ -170,32 +233,32 @@ func (board *BitBoard) UpdateBoard(move *Move) {
     }
 }
 
-func (board *BitBoard) handleCastling(castlingType int) {
-    if castlingType == WHITE_CASTLING_SHORT {
+func (board *BitBoard) handleCastling(castlingType CastlingType) {
+    if castlingType.is(WHITE_CASTLING_SHORT) {
         board.move(WHITE_KING, E1, G1)
         board.move(WHITE_ROOK, H1, F1)
-    } else if castlingType == BLACK_CASTLING_SHORT {
+    } else if castlingType.is(BLACK_CASTLING_SHORT) {
         board.move(BLACK_KING, E8, G8)
         board.move(BLACK_ROOK, H8, F8)
-    } else if castlingType == WHITE_CASTLING_LONG {
+    } else if castlingType.is(WHITE_CASTLING_LONG) {
         board.move(WHITE_KING, E1, C1)
         board.move(WHITE_ROOK, A1, D1)
-    } else if castlingType == BLACK_CASTLING_LONG {
+    } else if castlingType.is(BLACK_CASTLING_LONG) {
         board.move(BLACK_KING, E8, C8)
         board.move(BLACK_ROOK, A8, D8)
     }
 }
 
-func (board *BitBoard) move(piece int, from uint64, to uint64) {
-    board.layers[piece] ^= from
-    board.layers[piece] |= to
+func (board *BitBoard) move(pieceType PieceType, from uint64, to uint64) {
+    board.layers[pieceType] ^= from
+    board.layers[pieceType] |= to
 }
 
 func (board *BitBoard) Pretty() {
     var sqs = []string{}
 
     // func get 64string
-    occ := board.occupied(PIECES)
+    occ := board.get(PIECES)
     for i := 0; i < 64; i++ {
         sqs = append(sqs, " ")
         var sq_bit uint64
@@ -245,47 +308,19 @@ func printBoard(sqs []string) {
     fmt.Println(result)
 }
 
-var SQUARE_REGEX = regexp.MustCompile(`^(?P<fileChar>\w+)(?P<rankChar>\d+)$`)
-var fileMap = map[string]int{"a" : 0, "b" : 1, "c" : 2, "d": 3, "e" : 4, "f" : 5, "g" : 6, "h": 7,}
-var rankMap = map[string]int{"1" : 0, "2" : 1, "3" : 2, "4": 3, "5" : 4, "6" : 5, "7" : 6, "8": 7,}
-
-func squareToCoords(square string) (int, int) {
-    // a1 -> (0, 0), h1 -> (0, 7), h8 -> (7, 7)
-    match := SQUARE_REGEX.FindStringSubmatch(square)
-
-    subs := make(map[string]string)
-    for i, name := range SQUARE_REGEX.SubexpNames() {
-        subs[name] = match[i]
-    }
-    return rankMap[subs["rankChar"]], fileMap[subs["fileChar"]]
-}
-
-func BitSquare(square string) uint64 {
-    rankNr, fileNr := squareToCoords(square)
-    shift := uint(8 * rankNr + fileNr)
-    return (1 << shift)
-}
-
 // setPieces takes squares as a parameter and returns a uint64
 // with bits turned on for the corresponding squares
 func setPieces(squares ...string) uint64 {
     var result uint64 = 0
     for _, square := range squares {
-        sq_bit := BitSquare(square)
-        result |= sq_bit
+        sq := NewSquare(square)
+        result |= sq.bit()
     }
     return result
 }
 
-// numSquare return the position of a square in 64 integer numbered from 0 to 63
-// Example: c1 -> 100 -> 2; a2 -> 1 0000 0000 -> 8
-func numSquare(square string) int {
-    rankNr, fileNr := squareToCoords(square)
-    return 8 * rankNr + fileNr
-}
-
 func testSquareToBit(square string) {
-    b := BitSquare(square)
+    b := NewSquare(square).bit()
     fmt.Printf("\"%s\"\n", square)
     pretty(b)
     fmt.Println()
@@ -337,75 +372,86 @@ type Mover interface {
     //Name() string
 }
 
-func NewPiece(ptype string, square_str string) Mover {
-    if ptype == "R" || ptype == "r" {
-        return NewRook(square_str)
-    } else if ptype == "B" || ptype == "b" {
-        return NewBishop(square_str)
-    } else if ptype == "Q" || ptype == "q" {
-        return NewQueen(square_str)
+func NewPiece(pieceType PieceType, square *Square) Mover {
+    if pieceType.is(ROOK) {
+        return NewRook(square)
+    } else if pieceType.is(BISHOP) {
+        return NewBishop(square)
+    } else if pieceType.is(QUEEN) {
+        return NewQueen(square)
+    } else if pieceType.is(KNIGHT) {
+        return NewKnight(square)
     } else {
         panic("More pieces coming soon...")
     }
 }
 
-type Rook struct {
-    // probably only square_bit is necessary
-    square_str string
-    square_bit uint64
-    square_num int
+type Knight struct {
+    square *Square
 }
 
-func NewRook(square_str string) *Rook {
-    return &Rook{square_str, BitSquare(square_str), numSquare(square_str)}
+func NewKnight(square *Square) *Knight {
+    return &Knight{square}
+}
+
+func (p *Knight) Name() string { return "Knight" }
+func (p *Knight) SquareStr() string { return p.square.name }
+func (p *Knight) Deltas() []int { return DELTAS_KNIGHT }
+func (p *Knight) Mask() uint64 { return knightMask(p.square) }
+func (p *Knight) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
+    return p.Mask() ^ (p.Mask() & hero_pieces)
+}
+
+
+type Rook struct {
+    square *Square
+}
+
+func NewRook(square *Square) *Rook {
+    return &Rook{square}
 }
 
 func (p *Rook) Name() string { return "Rook" }
-func (p *Rook) SquareStr() string { return p.square_str }
+func (p *Rook) SquareStr() string { return p.square.name }
 func (p *Rook) Deltas() []int { return DELTAS_ROOK }
-func (p *Rook) Mask() uint64 { return rookMask(p.square_str) }
+func (p *Rook) Mask() uint64 { return rookMask(p.square) }
 func (p *Rook) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return getSlidingMoves(p.Deltas(), p.Mask(), p.square_bit, hero_pieces, opp_pieces)
+    return getSlidingMoves(p.Deltas(), p.Mask(), p.square.bit(), hero_pieces, opp_pieces)
 }
 
 type Bishop struct {
-    // probably only square_bit is necessary
-    square_str string
-    square_bit uint64
-    square_num int
+    square *Square
 }
 
-func NewBishop(square_str string) *Bishop {
-    return &Bishop{square_str, BitSquare(square_str), numSquare(square_str)}
+func NewBishop(square *Square) *Bishop {
+    return &Bishop{square}
 }
 
 func (p *Bishop) Name() string { return "Bishop" }
-func (p *Bishop) SquareStr() string { return p.square_str }
+func (p *Bishop) SquareStr() string { return p.square.name }
 func (p *Bishop) Deltas() []int { return DELTAS_BISHOP }
-func (p *Bishop) Mask() uint64 { return bishopMask(p.square_str) }
+func (p *Bishop) Mask() uint64 { return bishopMask(p.square) }
 func (p *Bishop) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return getSlidingMoves(p.Deltas(), p.Mask(), p.square_bit, hero_pieces, opp_pieces)
+    return getSlidingMoves(p.Deltas(), p.Mask(), p.square.bit(), hero_pieces, opp_pieces)
 }
 
 type Queen struct {
-    // probably only square_bit is necessary
-    square_str string
-    square_bit uint64
-    square_num int
+    square *Square
 }
 
-func NewQueen(square_str string) *Queen {
-    return &Queen{square_str, BitSquare(square_str), numSquare(square_str)}
+func NewQueen(square *Square) *Queen {
+    return &Queen{square}
 }
 
 func (p *Queen) Name() string { return "Queen" }
-func (p *Queen) SquareStr() string { return p.square_str }
+func (p *Queen) SquareStr() string { return p.square.name }
 func (p *Queen) Deltas() []int { return DELTAS_QUEEN }
-func (p *Queen) Mask() uint64 { return rookMask(p.square_str) + bishopMask(p.square_str) }
+func (p *Queen) Mask() uint64 { return rookMask(p.square) + bishopMask(p.square) }
 func (p *Queen) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return getSlidingMoves(p.Deltas(), p.Mask(), p.square_bit, hero_pieces, opp_pieces)
+    return getSlidingMoves(p.Deltas(), p.Mask(), p.square.bit(), hero_pieces, opp_pieces)
 }
 
+// TODO: too many parameters, cut it
 func getSlidingMoves(deltas []int, mask uint64, square_bit uint64, hero_pieces uint64, opp_pieces uint64) uint64 {
     result := uint64(0)
     for _, delta := range deltas {
@@ -434,37 +480,39 @@ func getSlidingMoves(deltas []int, mask uint64, square_bit uint64, hero_pieces u
     return result
 }
 
-func testPieceMoves(ptype string, square_str string, hero_pieces uint64, opp_pieces uint64) {
-    p := NewPiece(ptype, square_str)
+func testPieceMoves(pieceType PieceType, square *Square, hero_pieces uint64, opp_pieces uint64) {
+    p := NewPiece(pieceType, square)
     b := p.Moves(hero_pieces, opp_pieces)
     fmt.Println("hero pieces:")
     pretty(hero_pieces)
     fmt.Println("opponents pieces:")
     pretty(opp_pieces)
-    fmt.Printf("%s on %s can move to:\n", ptype, square_str)
+    fmt.Printf("%s on %s can move to:\n", pieceType, square)
     pretty(b)
 }
 
-func rookMask(square string) uint64 {
-    rankNr, fileNr := squareToCoords(square)
+func rookMask(square *Square) uint64 {
+    fileNr, rankNr := square.coords()
     fileBB := filesBB[fileNr]
     rankBB := ranksBB[rankNr]
     return fileBB ^ rankBB
 }
 
-func testRookMask(square string) {
-    fmt.Printf("Rook mask on \"%s\":\n", square)
+func testRookMask(square_str string) {
+    fmt.Printf("Rook mask on \"%s\":\n", square_str)
+    square := NewSquare(square_str)
     pretty(rookMask(square))
 }
 
-func bishopMoves(square string, hero_pieces uint64, opp_pieces uint64) uint64 {
+func bishopMoves(square *Square, hero_pieces uint64, opp_pieces uint64) uint64 {
     mask := bishopMask(square)
-    sq_bit := BitSquare(square)
+    sq_bit := square.bit()
 
     return getSlidingMoves(DELTAS_BISHOP, mask, sq_bit, hero_pieces, opp_pieces)
 }
 
-func testBishopMoves(square string, hero_pieces uint64, opp_pieces uint64) {
+func testBishopMoves(square_str string, hero_pieces uint64, opp_pieces uint64) {
+    square := NewSquare(square_str)
     b := bishopMoves(square, hero_pieces, opp_pieces)
     fmt.Println("my pieces:")
     pretty(hero_pieces)
@@ -476,9 +524,9 @@ func testBishopMoves(square string, hero_pieces uint64, opp_pieces uint64) {
 
 // bishopMask returns the set of possible squares that a bishop can reach from a given square in a bitboard.
 // TODO: think about precomputing every possible mask
-func bishopMask(square string) uint64 {
-    sq_bit := BitSquare(square)
-    sq_num := numSquare(square) // sq_nr in 0..63
+func bishopMask(square *Square) uint64 {
+    sq_bit := square.bit()
+    sq_num := square.num() // sq_nr in 0..63
     result := uint64(0)
 
     for _, delta := range DELTAS_BISHOP {
@@ -500,14 +548,15 @@ func bishopMask(square string) uint64 {
     return result
 }
 
-func testBishopMask(square string) {
-    fmt.Printf("Bishop mask on \"%s\":\n", square)
+func testBishopMask(square_str string) {
+    fmt.Printf("Bishop mask on \"%s\":\n", square_str)
+    square := NewSquare(square_str)
     pretty(bishopMask(square))
 }
 
 // knightMask returns all the squares a knight can reach from a given square on an empty board.
-func knightMask(square string) uint64 {
-    sq_num := numSquare(square) // sq_num in 0..63
+func knightMask(square *Square) uint64 {
+    sq_num := square.num() // sq_num in 0..63
     result := uint64(0)
     for _, delta := range DELTAS_KNIGHT {
         mod_diff := (sq_num % 8) - ((sq_num + delta) % 8)
@@ -519,8 +568,9 @@ func knightMask(square string) uint64 {
     return result
 }
 
-func testKnightMask(square string) {
-    fmt.Printf("Knight mask on \"%s\":\n", square)
+func testKnightMask(square_str string) {
+    fmt.Printf("Knight mask on \"%s\":\n", square_str)
+    square := NewSquare(square_str)
     pretty(knightMask(square))
 }
 

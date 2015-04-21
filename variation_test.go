@@ -41,3 +41,39 @@ func TestVariation_04(t *testing.T) {
     res := PrettyLine(uci_line, board, 1, true)
     assert.Equal(t, "1.f8Q Nf7 2.Qxg8 a5 3.Qxf7", res)
 }
+
+func TestVariation_05(t *testing.T) {
+    // test single move
+    board := NewBitBoardStart()
+    uci_line := "e2e4"
+    res := PrettyLine(uci_line, board, 1, true)
+    assert.Equal(t, "1.e4", res)
+}
+
+func TestVariation_06(t *testing.T) {
+    // test castling long
+    board := NewBitBoardStart()
+    uci_line := "e2e4 e7e5 g1f3 g8f6 f3e5 d7d6 e5f3 f6e4 d1e2 d8e7 d2d3 e4f6 c1d2 b8c6 b1c3 c8e6 e1c1 e8c8 c1b1 c8b8 d3d4 h7h6 a2a3 a7a6 d1e1 d6d5 d2f4"
+    res := PrettyLine(uci_line, board, 1, true)
+    assert.Equal(t, "1.e4 e5 2.Nf3 Nf6 3.Nxe5 d6 4.Nf3 Nxe4 5.Qe2 Qe7 6.d3 Nf6 7.Bd2 Nc6 8.Nc3 Be6 9.0-0-0 0-0-0 10.Kb1 Kb8 11.d4 h6 12.a3 a6 13.Re1 d5 14.Bf4", res)
+}
+
+func TestVariation_unique_01(t *testing.T) {
+    // white rooks on a1 and f1, black knights on c5 and g5
+    fenString := "6k1/8/8/2n3n1/8/8/8/R4RK1 w - -"
+    fen := NewFen(fenString)
+    board := NewBitBoard(fen)
+    uci_line := "a1e1 g5e4 e1a1 e4d6 f1c1 c5b7"
+    res := PrettyLine(uci_line, board, 1, true)
+    assert.Equal(t, "1.Rae1 Nge4 2.Ra1 Nd6 3.Rfc1 Ncb7", res)
+}
+
+func TestVariation_unique_02(t *testing.T) {
+    // white queens on a4, a6, a8, e4, e6, e8 and black knights on g2 and g6, black rooks on h2, h6
+    fenString := "Q3Q3/8/Q3Q1nr/8/Q3Q3/8/6nr/1K4k1 w - -"
+    fen := NewFen(fenString)
+    board := NewBitBoard(fen)
+    uci_line := "a6c6 h2h4 c6a6 h4h2 e8c6 g6f4 c6e8 f4g6"
+    res := PrettyLine(uci_line, board, 1, true)
+    assert.Equal(t, "1.Qa6c6 R2h4 2.Qca6 Rh2 3.Qe8c6 N6f4 4.Qce8 Ng6", res)
+}

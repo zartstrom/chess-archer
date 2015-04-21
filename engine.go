@@ -183,21 +183,21 @@ func styleLine(moves []*Move, moveNumber int, whiteToMove bool, result string) s
 
 func styleMove(move *Move) string {
     if move.isCastling {
-        return CASTLING_TO_STRING[move.castlingType]
+        return move.castlingType.String()
     }
 
-    pieceSymbol     := PIECE_TO_ALGEBRAIC[move.piece]
+    pieceSymbol     := PIECE_TO_ALGEBRAIC[move.pieceType]
     captureString   := getCaptureString(move)
     promotionString := getPromotionString(move)
 
-    return pieceSymbol + captureString + move.targetSquare + promotionString
+    return pieceSymbol + captureString + move.unambiguity + move.targetSquare.name + promotionString
 }
 
 func getCaptureString(move *Move) string {
     if !move.isCapture {
         return ""
-    } else if typeOf(move.piece, PAWN) {
-        return fmt.Sprintf("%sx", string(move.initialSquare[:1]))
+    } else if move.pieceType.is(PAWN) {
+        return fmt.Sprintf("%sx", string(move.initialSquare.file))
     } else {
         return "x"
     }
@@ -210,27 +210,78 @@ func getPromotionString(move *Move) string {
     return ""
 }
 
+type Square struct {
+    name string
+    file string
+    rank string
+}
+
+var SQUARE_REGEX = regexp.MustCompile(`^(?P<file>\w+)(?P<rank>\d+)$`)
+
+func NewSquare(name string) *Square {
+    match := SQUARE_REGEX.FindStringSubmatch(name)
+
+    subexps := make(map[string]string)
+    for i, name := range SQUARE_REGEX.SubexpNames() { subexps[name] = match[i] }
+
+    file := subexps["file"]
+    rank := subexps["rank"]
+
+    return &Square{name, file, rank}
+}
+
+func NewSquareByNum(num int) *Square {
+    // TODO: unittest this
+    file_int := num % 8
+    rank_int := num / 8
+    square_str := fmt.Sprintf("%s%d", string(97 + file_int), rank_int + 1)
+    return NewSquare(square_str)
+}
+
+func (s *Square) bit() uint64 {
+    fileNr, rankNr := s.coords()
+    shift := uint(8 * rankNr + fileNr)
+    return (1 << shift)
+}
+
+var FILE_INT = map[string]int{"a" : 0, "b" : 1, "c" : 2, "d": 3, "e" : 4, "f" : 5, "g" : 6, "h": 7,}
+var RANK_INT = map[string]int{"1" : 0, "2" : 1, "3" : 2, "4": 3, "5" : 4, "6" : 5, "7" : 6, "8": 7,}
+
+func (s *Square) coords() (int, int) {
+    // a1 -> (0, 0), c2 -> (1, 2), h1 -> (0, 7), h8 -> (7, 7)
+    return FILE_INT[s.file], RANK_INT[s.rank]
+}
+
+// num returns the position of a square in 64 integer numbered from 0 to 63
+// Example: c1 -> 100 -> 2; a2 -> 1 0000 0000 -> 8
+func (s *Square) num() int {
+    file_int, rank_int := s.coords()
+    return 8 * rank_int + file_int
+}
+
 type Move struct {
     uciMove string
-    initialSquare string
-    targetSquare string
-    piece int
+    initialSquare *Square
+    targetSquare *Square
+    pieceType PieceType
 
     isCastling bool
-    castlingType int
+    castlingType CastlingType
 
     isCapture bool
     isEnPassant bool
     enPassantSquare uint64
 
     isPromotion bool
-    promotionPiece int
+    promotionPiece PieceType
+
+    unambiguity string
 }
 
 func NewMove(uciMove string, board *BitBoard) *Move {
-    initialSquare   := string(uciMove[:2])
-    targetSquare    := string(uciMove[2:4])
-    piece           := board.GetPiece(initialSquare)
+    initialSquare   := NewSquare(uciMove[:2])
+    targetSquare    := NewSquare(uciMove[2:4])
+    pieceType       := board.GetPiece(initialSquare)
     isCastling      := false
     castlingType    := NO_CASTLING
     isCapture       := false
@@ -238,28 +289,25 @@ func NewMove(uciMove string, board *BitBoard) *Move {
     enPassantSquare := uint64(0)
     isPromotion     := false
     promotionPiece  := NO_PIECE
+    unambiguity     := ""
 
-    if typeOf(piece, KING) {
-        isCastling, castlingType = checkCastling(uciMove, piece)
-    }
-    if typeOf(piece, PAWN) {
-        isCapture, isEnPassant, enPassantSquare = board.IsPawnCapture(piece, initialSquare, targetSquare)
+    if pieceType.is(PAWN) {
+        isCapture, isEnPassant, enPassantSquare = board.IsPawnCapture(pieceType, initialSquare, targetSquare)
         isPromotion, promotionPiece = checkPromotion(uciMove, targetSquare)
+    } else if pieceType.is(KING) {
+        isCastling, castlingType = checkCastling(uciMove, pieceType)
+        isCapture = board.IsCapture(pieceType, targetSquare)
     } else {
-        isCapture = board.IsCapture(piece, targetSquare)
+        isCapture = board.IsCapture(pieceType, targetSquare)
+        unambiguity = board.GetUnambiguity(pieceType, initialSquare, targetSquare)
     }
 
-    return &Move{uciMove, initialSquare, targetSquare, piece, isCastling,
-        castlingType, isCapture, isEnPassant, enPassantSquare, isPromotion, promotionPiece}
+    return &Move{uciMove, initialSquare, targetSquare, pieceType, isCastling, castlingType,
+        isCapture, isEnPassant, enPassantSquare, isPromotion, promotionPiece, unambiguity}
 }
 
-// typeOf takes a some piece and checks for piece type
-func typeOf(somePiece int, piece int) bool {
-    return somePiece % 8 == piece
-}
-
-func checkCastling(move string, piece int) (bool, int) {
-    if piece != WHITE_KING && piece != BLACK_KING {
+func checkCastling(move string, pieceType PieceType) (bool, CastlingType) {
+    if !pieceType.is(KING) {
         return false, NO_CASTLING
     }
     if move == "e1g1" {
@@ -274,11 +322,11 @@ func checkCastling(move string, piece int) (bool, int) {
     return false, NO_CASTLING
 }
 
-func checkPromotion(move string, targetSquare string) (bool, int) {
+func checkPromotion(move string, targetSquare *Square) (bool, PieceType) {
     if len(move) != 5 { return false, NO_PIECE }
 
     pieceStr := string(move[4])
-    rankNr, _ := squareToCoords(targetSquare)
+    _, rankNr := targetSquare.coords()
     var color bool
     if rankNr == 7 {
         color = WHITE
@@ -286,8 +334,8 @@ func checkPromotion(move string, targetSquare string) (bool, int) {
         color = BLACK
     } else { panic("invalid rank for promotion") }
 
-    piece := PROMOTION_TO_PIECE[PromotionKey{color, pieceStr}]
-    return true, piece
+    pieceType := PROMOTION_TO_PIECE[PromotionKey{color, pieceStr}]
+    return true, pieceType
 }
 
 type Fen struct {

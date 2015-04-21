@@ -1,29 +1,48 @@
 package main
 
 
-const WHITE_KING = 1
-const WHITE_QUEEN = 2
-const WHITE_ROOK = 3
-const WHITE_BISHOP = 4
-const WHITE_KNIGHT = 5
-const WHITE_PAWN = 6
-const BLACK_KING = 9
-const BLACK_QUEEN = 10
-const BLACK_ROOK = 11
-const BLACK_BISHOP = 12
-const BLACK_KNIGHT = 13
-const BLACK_PAWN = 14
-const NO_PIECE = 0
-// it holds: WHITE_PIECE % 8 == PIECE == BLACK_PIECE % 8
-const KING = 1
-const QUEEN = 2
-const ROOK = 3
-const BISHOP = 4
-const KNIGHT = 5
-const PAWN = 6
+type PieceType uint8
 
-var PIECES = []int{
+// it holds: WHITE_PIECE % 8 == PIECE == BLACK_PIECE % 8
+const (
+    NO_PIECE PieceType = iota
+    KING // = 1
+    QUEEN
+    ROOK
+    BISHOP
+    KNIGHT
+    PAWN // = 6
+    _
+    _
+    WHITE_KING // = 9
+    WHITE_QUEEN
+    WHITE_ROOK
+    WHITE_BISHOP
+    WHITE_KNIGHT
+    WHITE_PAWN // = 14
+    _
+    _
+    BLACK_KING // = 17
+    BLACK_QUEEN
+    BLACK_ROOK
+    BLACK_BISHOP
+    BLACK_KNIGHT
+    BLACK_PAWN // = 22
+)
+
+// typeOf takes a some piece and checks for piece type
+func (pieceType PieceType) is(otherType PieceType) bool {
+    return pieceType % 8 == otherType
+}
+
+var PIECES = []PieceType{
     WHITE_KING, WHITE_QUEEN, WHITE_ROOK, WHITE_BISHOP, WHITE_KNIGHT, WHITE_PAWN,
+    BLACK_KING, BLACK_QUEEN, BLACK_ROOK, BLACK_BISHOP, BLACK_KNIGHT, BLACK_PAWN,
+}
+var WHITE_PIECES = []PieceType{
+    WHITE_KING, WHITE_QUEEN, WHITE_ROOK, WHITE_BISHOP, WHITE_KNIGHT, WHITE_PAWN,
+}
+var BLACK_PIECES = []PieceType{
     BLACK_KING, BLACK_QUEEN, BLACK_ROOK, BLACK_BISHOP, BLACK_KNIGHT, BLACK_PAWN,
 }
 
@@ -83,7 +102,7 @@ const UTF8_BLACK_KNIGHT = "♞"
 const UTF8_BLACK_PAWN = "" //"♟"
 
 
-var FEN_TO_PIECE = map[string]int{
+var FEN_TO_PIECE = map[string]PieceType{
     FEN_WHITE_KING: WHITE_KING,
     FEN_WHITE_QUEEN: WHITE_QUEEN,
     FEN_WHITE_ROOK: WHITE_ROOK,
@@ -99,7 +118,7 @@ var FEN_TO_PIECE = map[string]int{
     FEN_EMPTY: 0,
 }
 
-var PIECE_TO_FEN = map[int]string{
+var PIECE_TO_FEN = map[PieceType]string{
     WHITE_KING: FEN_WHITE_KING,
     WHITE_QUEEN: FEN_WHITE_QUEEN,
     WHITE_ROOK: FEN_WHITE_ROOK,
@@ -114,7 +133,7 @@ var PIECE_TO_FEN = map[int]string{
     BLACK_PAWN: FEN_BLACK_PAWN,
 }
 
-var PIECE_TO_HTML = map[int]string{
+var PIECE_TO_HTML = map[PieceType]string{
     WHITE_KING: HTML_WHITE_KING,
     WHITE_QUEEN: HTML_WHITE_QUEEN,
     WHITE_ROOK: HTML_WHITE_ROOK,
@@ -159,7 +178,7 @@ var FEN_TO_UTF8 = map[string]string{
     FEN_BLACK_PAWN: UTF8_BLACK_PAWN,
 }
 
-var PIECE_TO_UTF8 = map[int]string{
+var PIECE_TO_UTF8 = map[PieceType]string{
     WHITE_KING: UTF8_WHITE_KING,
     WHITE_QUEEN: UTF8_WHITE_QUEEN,
     WHITE_ROOK: UTF8_WHITE_ROOK,
@@ -174,7 +193,7 @@ var PIECE_TO_UTF8 = map[int]string{
     BLACK_PAWN: UTF8_BLACK_PAWN,
 }
 
-var PIECE_TO_ALGEBRAIC = map[int]string{
+var PIECE_TO_ALGEBRAIC = map[PieceType]string{
     WHITE_KING: ALGEBRAIC_WHITE_KING,
     WHITE_QUEEN: ALGEBRAIC_WHITE_QUEEN,
     WHITE_ROOK: ALGEBRAIC_WHITE_ROOK,
@@ -189,22 +208,33 @@ var PIECE_TO_ALGEBRAIC = map[int]string{
     BLACK_PAWN: ALGEBRAIC_BLACK_PAWN,
 }
 
-const NO_CASTLING          = 0
-const WHITE_CASTLING_SHORT = 1
-const WHITE_CASTLING_LONG  = 2
-const BLACK_CASTLING_SHORT = 3
-const BLACK_CASTLING_LONG  = 4
+type CastlingType uint8
+func (c CastlingType) is(otherType CastlingType) bool {
+    return c == otherType
+}
+
+const (
+    NO_CASTLING CastlingType = iota
+    WHITE_CASTLING_SHORT
+    WHITE_CASTLING_LONG
+    BLACK_CASTLING_SHORT
+    BLACK_CASTLING_LONG
+)
 
 const WHITE_CASTLING_SHORT_STRING = "0-0"
 const BLACK_CASTLING_SHORT_STRING = "0-0"
 const WHITE_CASTLING_LONG_STRING  = "0-0-0"
 const BLACK_CASTLING_LONG_STRING  = "0-0-0"
 
-var CASTLING_TO_STRING = map[int]string{
+var CASTLING_TO_STRING = map[CastlingType]string{
     WHITE_CASTLING_SHORT: WHITE_CASTLING_SHORT_STRING,
     WHITE_CASTLING_LONG:  WHITE_CASTLING_LONG_STRING,
     BLACK_CASTLING_SHORT: BLACK_CASTLING_SHORT_STRING,
     BLACK_CASTLING_LONG:  BLACK_CASTLING_LONG_STRING,
+}
+
+func (c CastlingType) String() string {
+    return CASTLING_TO_STRING[c]
 }
 
 const A1 = 1 << 0
@@ -281,7 +311,7 @@ type PromotionKey struct {
 const WHITE = true
 const BLACK = false
 
-var PROMOTION_TO_PIECE = map[PromotionKey]int {
+var PROMOTION_TO_PIECE = map[PromotionKey]PieceType {
     PromotionKey{WHITE, "q"} : WHITE_QUEEN,
     PromotionKey{WHITE, "r"} : WHITE_ROOK,
     PromotionKey{WHITE, "b"} : WHITE_BISHOP,
