@@ -1,6 +1,14 @@
 package main
 
 
+import "fmt"
+
+
+type Color bool
+
+const WHITE Color = true
+const BLACK Color = false
+
 type PieceType uint8
 
 // it holds: WHITE_PIECE % 8 == PIECE == BLACK_PIECE % 8
@@ -33,6 +41,19 @@ const (
 // typeOf takes a some piece and checks for piece type
 func (pieceType PieceType) is(otherType PieceType) bool {
     return pieceType % 8 == otherType
+}
+
+func (pieceType PieceType) color() Color {
+    s := pieceType / 8
+    if s == 1 {
+        return WHITE
+    } else if s == 2 {
+        return BLACK
+    } else if pieceType == NO_PIECE {
+        panic("Need a piece to check color")
+    } else {
+        panic("Need a white or a black piece to check color")
+    }
 }
 
 var PIECES = []PieceType{
@@ -304,12 +325,9 @@ const H8 = 1 << 63
 
 
 type PromotionKey struct {
-    white bool
+    color Color
     uciPromotion string
 }
-
-const WHITE = true
-const BLACK = false
 
 var PROMOTION_TO_PIECE = map[PromotionKey]PieceType {
     PromotionKey{WHITE, "q"} : WHITE_QUEEN,

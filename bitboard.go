@@ -131,7 +131,6 @@ func (board *BitBoard) GetUnambiguity(pieceType PieceType, initialSquare, target
     positions := findBitPositions(rest)
     pieces := []Mover{}
 
-    // TODO: make it work for four queens and more
     // TODO: clean it up
     res_file := ""
     res_rank := ""
@@ -141,6 +140,7 @@ func (board *BitBoard) GetUnambiguity(pieceType PieceType, initialSquare, target
         p := NewPiece(pieceType, square)
         pieces = append(pieces, p)
 
+        // TODO: resolve (white, black) -> (hero, opp) mismatch
         if p.Moves(board.whitePieces(), board.blackPieces()) & targetSquare.bit() != 0 {
             if square.file != initialSquare.file {
                 res_file = initialSquare.file
@@ -252,6 +252,42 @@ func (board *BitBoard) handleCastling(castlingType CastlingType) {
 func (board *BitBoard) move(pieceType PieceType, from uint64, to uint64) {
     board.layers[pieceType] ^= from
     board.layers[pieceType] |= to
+}
+
+// TODO: needs some refactoring
+func (board *BitBoard) isCheck(color Color) bool {
+    var pieceTypes []PieceType
+    var kingbit uint64
+    if color == WHITE {
+        pieceTypes = WHITE_PIECES
+        kingbit = board.layers[BLACK_KING]
+    } else {
+        pieceTypes = BLACK_PIECES
+        kingbit = board.layers[WHITE_KING]
+    }
+
+    whitePieces := board.whitePieces()
+    blackPieces := board.blackPieces()
+
+    attacked := uint64(0)
+    for _, pieceType := range pieceTypes {
+        if pieceType.is(PAWN) || pieceType.is(KING) {
+            continue  // still need to implement moves for king and pawn
+        }
+
+        pieces := []Mover{}
+        positions := findBitPositions(board.layers[pieceType])
+        for _, position := range positions {
+            sq := NewSquareByNum(position)
+            pieces = append(pieces, NewPiece(pieceType, sq))
+        }
+
+        for _, piece := range pieces {
+            attacked |= piece.Moves(whitePieces, blackPieces)
+        }
+    }
+
+    return kingbit & attacked == kingbit
 }
 
 func (board *BitBoard) Pretty() {
@@ -366,21 +402,26 @@ var DELTAS_KNIGHT = []int{
 
 type Mover interface {
     Deltas() []int
-    Moves(w_pieces, b_pieces uint64) uint64
+    Moves(white_pieces, black_pieces uint64) uint64
     Mask() uint64
-    //SquareStr() string
-    //Name() string
+    Square() *Square
+    Color() Color
 }
 
 func NewPiece(pieceType PieceType, square *Square) Mover {
+    //fmt.Println("TTTTTTTTTTTTTTTTTT")
+    //fmt.Printf("%d\n", pieceType)
+    //fmt.Printf(square.name)
+    //fmt.Printf("\n")
+    color := pieceType.color()
     if pieceType.is(ROOK) {
-        return NewRook(square)
+        return NewRook(square, color)
     } else if pieceType.is(BISHOP) {
-        return NewBishop(square)
+        return NewBishop(square, color)
     } else if pieceType.is(QUEEN) {
-        return NewQueen(square)
+        return NewQueen(square, color)
     } else if pieceType.is(KNIGHT) {
-        return NewKnight(square)
+        return NewKnight(square, color)
     } else {
         panic("More pieces coming soon...")
     }
@@ -388,71 +429,94 @@ func NewPiece(pieceType PieceType, square *Square) Mover {
 
 type Knight struct {
     square *Square
+    color Color
 }
 
-func NewKnight(square *Square) *Knight {
-    return &Knight{square}
+func NewKnight(square *Square, color Color) *Knight {
+    return &Knight{square, color}
 }
 
 func (p *Knight) Name() string { return "Knight" }
-func (p *Knight) SquareStr() string { return p.square.name }
+func (p *Knight) Square() *Square { return p.square }
+func (p *Knight) Color() Color { return p.color }
 func (p *Knight) Deltas() []int { return DELTAS_KNIGHT }
 func (p *Knight) Mask() uint64 { return knightMask(p.square) }
-func (p *Knight) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return p.Mask() ^ (p.Mask() & hero_pieces)
+func (p *Knight) Moves(white_pieces uint64, black_pieces uint64) uint64 {
+    if p.Color() == WHITE {
+        return p.Mask() ^ (p.Mask() & white_pieces)
+    } else {
+        return p.Mask() ^ (p.Mask() & black_pieces)
+    }
 }
 
 
 type Rook struct {
     square *Square
+    color Color
 }
 
-func NewRook(square *Square) *Rook {
-    return &Rook{square}
+func NewRook(square *Square, color Color) *Rook {
+    return &Rook{square, color}
 }
 
 func (p *Rook) Name() string { return "Rook" }
-func (p *Rook) SquareStr() string { return p.square.name }
+func (p *Rook) Square() *Square { return p.square }
+func (p *Rook) Color() Color { return p.color }
 func (p *Rook) Deltas() []int { return DELTAS_ROOK }
 func (p *Rook) Mask() uint64 { return rookMask(p.square) }
-func (p *Rook) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return getSlidingMoves(p.Deltas(), p.Mask(), p.square.bit(), hero_pieces, opp_pieces)
+func (p *Rook) Moves(white_pieces uint64, black_pieces uint64) uint64 {
+    return getSlidingMoves(p, white_pieces, black_pieces)
 }
 
 type Bishop struct {
     square *Square
+    color Color
 }
 
-func NewBishop(square *Square) *Bishop {
-    return &Bishop{square}
+func NewBishop(square *Square, color Color) *Bishop {
+    return &Bishop{square, color}
 }
 
 func (p *Bishop) Name() string { return "Bishop" }
-func (p *Bishop) SquareStr() string { return p.square.name }
+func (p *Bishop) Square() *Square { return p.square }
+func (p *Bishop) Color() Color { return p.color }
 func (p *Bishop) Deltas() []int { return DELTAS_BISHOP }
 func (p *Bishop) Mask() uint64 { return bishopMask(p.square) }
-func (p *Bishop) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return getSlidingMoves(p.Deltas(), p.Mask(), p.square.bit(), hero_pieces, opp_pieces)
+func (p *Bishop) Moves(white_pieces uint64, black_pieces uint64) uint64 {
+    return getSlidingMoves(p, white_pieces, black_pieces)
 }
 
 type Queen struct {
     square *Square
+    color Color
 }
 
-func NewQueen(square *Square) *Queen {
-    return &Queen{square}
+func NewQueen(square *Square, color Color) *Queen {
+    return &Queen{square, color}
 }
 
 func (p *Queen) Name() string { return "Queen" }
-func (p *Queen) SquareStr() string { return p.square.name }
+func (p *Queen) Square() *Square { return p.square }
+func (p *Queen) Color() Color { return p.color }
 func (p *Queen) Deltas() []int { return DELTAS_QUEEN }
 func (p *Queen) Mask() uint64 { return rookMask(p.square) + bishopMask(p.square) }
-func (p *Queen) Moves(hero_pieces uint64, opp_pieces uint64) uint64 {
-    return getSlidingMoves(p.Deltas(), p.Mask(), p.square.bit(), hero_pieces, opp_pieces)
+func (p *Queen) Moves(white_pieces uint64, black_pieces uint64) uint64 {
+    return getSlidingMoves(p, white_pieces, black_pieces)
 }
 
-// TODO: too many parameters, cut it
-func getSlidingMoves(deltas []int, mask uint64, square_bit uint64, hero_pieces uint64, opp_pieces uint64) uint64 {
+func getSlidingMoves(piece Mover, white_pieces uint64, black_pieces uint64) uint64 {
+    deltas := piece.Deltas()
+    mask := piece.Mask()
+    square_bit := piece.Square().bit()
+
+    hero_pieces := white_pieces
+    opp_pieces  := black_pieces
+
+    if piece.Color() == BLACK {
+        hero_pieces = black_pieces
+        opp_pieces  = white_pieces
+    }
+
     result := uint64(0)
     for _, delta := range deltas {
         x := square_bit
@@ -480,13 +544,13 @@ func getSlidingMoves(deltas []int, mask uint64, square_bit uint64, hero_pieces u
     return result
 }
 
-func testPieceMoves(pieceType PieceType, square *Square, hero_pieces uint64, opp_pieces uint64) {
+func testPieceMoves(pieceType PieceType, square *Square, white_pieces uint64, black_pieces uint64) {
     p := NewPiece(pieceType, square)
-    b := p.Moves(hero_pieces, opp_pieces)
-    fmt.Println("hero pieces:")
-    pretty(hero_pieces)
-    fmt.Println("opponents pieces:")
-    pretty(opp_pieces)
+    b := p.Moves(white_pieces, black_pieces)
+    fmt.Println("white pieces:")
+    pretty(white_pieces)
+    fmt.Println("black pieces:")
+    pretty(black_pieces)
     fmt.Printf("%s on %s can move to:\n", pieceType, square)
     pretty(b)
 }
@@ -502,24 +566,6 @@ func testRookMask(square_str string) {
     fmt.Printf("Rook mask on \"%s\":\n", square_str)
     square := NewSquare(square_str)
     pretty(rookMask(square))
-}
-
-func bishopMoves(square *Square, hero_pieces uint64, opp_pieces uint64) uint64 {
-    mask := bishopMask(square)
-    sq_bit := square.bit()
-
-    return getSlidingMoves(DELTAS_BISHOP, mask, sq_bit, hero_pieces, opp_pieces)
-}
-
-func testBishopMoves(square_str string, hero_pieces uint64, opp_pieces uint64) {
-    square := NewSquare(square_str)
-    b := bishopMoves(square, hero_pieces, opp_pieces)
-    fmt.Println("my pieces:")
-    pretty(hero_pieces)
-    fmt.Println("opponents pieces:")
-    pretty(opp_pieces)
-    fmt.Printf("Bishop on %s can move to:\n", square)
-    pretty(b)
 }
 
 // bishopMask returns the set of possible squares that a bishop can reach from a given square in a bitboard.

@@ -58,9 +58,15 @@ type AnalysisState struct {
     fen *Fen
 }
 
+var REGEX_POSITION_FEN = regexp.MustCompile(`position fen (?P<fenString>.*)`)
+
 func (as *AnalysisState) CmdUpdate(cmd string) {
     if regexp.MustCompile(`^go`).MatchString(cmd) {
         as.started = true
+    }
+    if REGEX_POSITION_FEN.MatchString(cmd) {
+        match := REGEX_POSITION_FEN.FindStringSubmatch(cmd)
+        as.fen = NewFen(match[1])
     }
 }
 
@@ -95,7 +101,7 @@ func talk(engine_in, engine_out, process_in, process_out chan string, engine_err
         case msg := <-process_out:
             if as.started == false {
                 engine_out <- msg
-            } else if line := getVariation(msg, as); line != "" {
+            } else if line := printMainline(msg, as); line != "" {
                 engine_out <- line
             }
         case <-engine_err:
@@ -108,10 +114,10 @@ func talk(engine_in, engine_out, process_in, process_out chan string, engine_err
 }
 
 //"info depth 1 seldepth 1 multipv 1 score cp 56 nodes 33 nps 16500 tbhits 0 time 2 pv e2e3 a7a6"
-var mainlineRegex = regexp.MustCompile(`.*seldepth (?P<depth>\d+).*score cp (?P<score>\d+).*pv (?P<mainline>.*)$`)
+var mainlineRegex = regexp.MustCompile(`.*seldepth (?P<depth>\d+).*score (?P<score>\w+ \d+).*pv (?P<mainline>.*)$`)
 
-// TODO: AnalysisState as parameter is wrong
-func getVariation(msg string, as *AnalysisState) string {
+// TODO: AnalysisState as parameter seems wrong
+func printMainline(msg string, as *AnalysisState) string {
     if !regexp.MustCompile(`seldepth`).MatchString(msg) {
         return ""
     }
@@ -120,12 +126,33 @@ func getVariation(msg string, as *AnalysisState) string {
     for i, name := range mainlineRegex.SubexpNames() {
         result[name] = match[i]
     }
-    eval, _ := strconv.ParseFloat(result["score"], 64)
-    eval = eval / 100
+    eval := getEval(result["score"])
+
     board := NewBitBoard(as.fen)
     prettyLine := PrettyLine(result["mainline"], board, as.MoveNumber(), as.WhiteToMove())
-    res := fmt.Sprintf("%3.2f - %s", eval, prettyLine)
+    res := fmt.Sprintf("%s - %s", eval, prettyLine)
     return res
+}
+
+
+var scoreRegex = regexp.MustCompile(`(?P<scoreType>\w+) (?P<val>\d+)`)
+func getEval(score string) string {
+    match := scoreRegex.FindStringSubmatch(score)
+    if len(match) < 2 { return "error in getEval" }
+
+    result := make(map[string]string)
+    for i, name := range scoreRegex.SubexpNames() {
+        result[name] = match[i]
+    }
+    if result["scoreType"] == "mate" {
+        return fmt.Sprintf("#%s", result["val"])
+    } else if result["scoreType"] == "cp" {
+        eval, _ := strconv.ParseFloat(result["val"], 64)
+        eval = eval / 100
+        return fmt.Sprintf("%3.2f", result["val"])
+    } else {
+        panic(fmt.Sprintf("Unknown score type %s", result["scoreType"]))
+    }
 }
 
 
@@ -144,11 +171,14 @@ func PrettyLine(line string, board *BitBoard, moveNumber int, whiteToMove bool) 
     // learn how to copy struct BitBoard because it is changed here
     // board_local := Voodoo(board)
 
+    color := Color(whiteToMove)
     moves := []*Move{}
     for _, uciMove := range strings.Split(line, " ") {
         move := NewMove(uciMove, board)
         board.UpdateBoard(move)
+        move.isCheck = board.isCheck(color)
         moves = append(moves, move)
+        color = !color
     }
 
     fmt.Println("\n")
@@ -187,10 +217,13 @@ func styleMove(move *Move) string {
     }
 
     pieceSymbol     := PIECE_TO_ALGEBRAIC[move.pieceType]
-    captureString   := getCaptureString(move)
-    promotionString := getPromotionString(move)
 
-    return pieceSymbol + captureString + move.unambiguity + move.targetSquare.name + promotionString
+    return pieceSymbol +
+        getCaptureString(move) +
+        move.unambiguity +
+        move.targetSquare.name +
+        getPromotionString(move) +
+        getCheckString(move)
 }
 
 func getCaptureString(move *Move) string {
@@ -208,6 +241,10 @@ func getPromotionString(move *Move) string {
         return PIECE_TO_ALGEBRAIC[move.promotionPiece]
     }
     return ""
+}
+
+func getCheckString(move *Move) string {
+    if move.isCheck { return "+" } else { return "" }
 }
 
 type Square struct {
@@ -275,6 +312,8 @@ type Move struct {
     isPromotion bool
     promotionPiece PieceType
 
+    isCheck bool
+
     unambiguity string
 }
 
@@ -289,7 +328,8 @@ func NewMove(uciMove string, board *BitBoard) *Move {
     enPassantSquare := uint64(0)
     isPromotion     := false
     promotionPiece  := NO_PIECE
-    unambiguity     := ""
+    isCheck         := false
+    unambiguity     := "" // is it Nd2 or Nbd2
 
     if pieceType.is(PAWN) {
         isCapture, isEnPassant, enPassantSquare = board.IsPawnCapture(pieceType, initialSquare, targetSquare)
@@ -303,7 +343,7 @@ func NewMove(uciMove string, board *BitBoard) *Move {
     }
 
     return &Move{uciMove, initialSquare, targetSquare, pieceType, isCastling, castlingType,
-        isCapture, isEnPassant, enPassantSquare, isPromotion, promotionPiece, unambiguity}
+        isCapture, isEnPassant, enPassantSquare, isPromotion, promotionPiece, isCheck, unambiguity}
 }
 
 func checkCastling(move string, pieceType PieceType) (bool, CastlingType) {
@@ -327,7 +367,7 @@ func checkPromotion(move string, targetSquare *Square) (bool, PieceType) {
 
     pieceStr := string(move[4])
     _, rankNr := targetSquare.coords()
-    var color bool
+    var color Color
     if rankNr == 7 {
         color = WHITE
     } else if rankNr == 0 {
