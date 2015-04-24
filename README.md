@@ -1,4 +1,4 @@
-# chess-archer
+# harpa-chess
 Analyze a game of chess with an engine
 
 ### Motivation
@@ -9,7 +9,7 @@ I want to
 
 On Linux I have not found a chess program that I really like, so why not write one myself?!
 
-Harpa is a music hall and a convention Center in Reykjavík, its architecture is great and it hosts an annual chess tournament.
+[Harpa](http://harpa.is "Harpa") is a concert hall and conference centre in Reykjavík, it hosts an annual chess tournament.
 
 ### Principles
 harpa-chess is
